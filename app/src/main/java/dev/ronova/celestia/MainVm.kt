@@ -70,9 +70,9 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     val voice: VoiceMeta? get() = voices.firstOrNull { it.id == voiceId }
 
-    fun setThreads(v: Int) { threads = v; store.put("threads", v) }
-    fun setXnnpack(v: Boolean) { xnnpack = v; store.put("xnnpack", v) }
-    fun setWindow(v: Float) { windowSec = v; store.put("window", v) }
+    fun changeThreads(v: Int) { threads = v; store.put("threads", v) }
+    fun changeXnnpack(v: Boolean) { xnnpack = v; store.put("xnnpack", v) }
+    fun changeWindow(v: Float) { windowSec = v; store.put("window", v) }
 
     private fun grant(uri: Uri) {
         runCatching { app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }

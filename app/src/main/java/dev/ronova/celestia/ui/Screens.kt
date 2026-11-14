@@ -274,14 +274,14 @@ fun EngineScreen(vm: MainVm) {
             }
         }
         Text("Производительность", style = MaterialTheme.typography.titleMedium)
-        Labeled("Потоков ONNX Runtime", "${vm.threads}", vm.threads.toFloat(), 1f..8f, 6) { vm.setThreads(it.toInt()) }
-        Labeled("Длина фрагмента", String.format(Locale.US, "%.0f с", vm.windowSec), vm.windowSec, 4f..8f, 3) { vm.setWindow(it) }
+        Labeled("Потоков ONNX Runtime", "${vm.threads}", vm.threads.toFloat(), 1f..8f, 6) { vm.changeThreads(it.toInt()) }
+        Labeled("Длина фрагмента", String.format(Locale.US, "%.0f с", vm.windowSec), vm.windowSec, 4f..8f, 3) { vm.changeWindow(it) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
                 Text("XNNPACK (экспериментально)")
                 Text("Только CPU. Для 1D-свёрток RVC обычно не быстрее стандартного CPU; при проблемах держите выключенным.", style = MaterialTheme.typography.bodySmall)
             }
-            Switch(vm.xnnpack, { vm.setXnnpack(it) })
+            Switch(vm.xnnpack, { vm.changeXnnpack(it) })
         }
         Text("NNAPI и GPU-делегаты в приложении не используются вообще.", style = MaterialTheme.typography.bodySmall)
     }
