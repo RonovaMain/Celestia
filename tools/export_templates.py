@@ -35,7 +35,10 @@ for f in glob.glob(os.path.join(pkg, "**", "*.py"), recursive=True):
     t = re.sub(r"(?m)^(\s*(?:from|import)\s+)(?:[\w.]*\.)?infer_pack\b", r"\1rvcpkg", t)
     open(f, "w", encoding="utf-8").write(t)
 sys.path.insert(0, pkg_root)
-from rvcpkg.models_onnx import SynthesizerTrnMsNSFsidM  # noqa: E402
+try:
+    from rvcpkg.models_onnx import SynthesizerTrnMsNSFsidM  # noqa: E402
+except ModuleNotFoundError as e:
+    sys.exit(f"Для кода RVC не хватает Python-пакета «{e.name}»: добавьте его в pip install в build.yml")
 
 # порядок = cpt["config"] в .pth RVC
 def config(sr, rates, kernels):
@@ -77,12 +80,13 @@ for tid, (sr, rates, kernels) in CONFIGS.items():
     inits = {t.name: t for t in model.graph.initializer}
 
     missing = [k for k in params if k not in inits]
-    print(f"[{tid}] параметров {len(params)}, не вошло в граф: {len(missing)} {missing[:6]}")
-    bad = [k for k in missing if k.startswith(("dec.", "flow.", "enc_p.", "emb_g."))
-           and k not in ("dec.m_source.l_sin_gen",)]
-    # допускаем пропажу единичных неиспользуемых параметров, но не массовую
-    if len(missing) > 0.05 * len(params):
-        sys.exit(f"[{tid}] слишком много параметров не найдено в графе — экспорт переименовал веса")
+    print(f"[{tid}] параметров {len(params)}, не вошло в граф: {len(missing)}")
+    if missing:
+        print("   не вошли:", missing[:30])
+    # Параметр, которого нет в графе под своим именем, приложение не сможет подставить, и голос стал бы
+    # шумом с тихой ошибкой. Поэтому падаем сразу, а не собираем сломанный шаблон.
+    if missing:
+        sys.exit(f"[{tid}] экспорт переименовал/потерял веса: {missing[:10]}")
 
     manifest, offset = {}, 0
     for name, t in inits.items():
