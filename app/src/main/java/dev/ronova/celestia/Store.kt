@@ -48,6 +48,8 @@ class Store(private val ctx: Context) {
             if (it.moveToFirst()) it.getString(0) else null
         } ?: uri.lastPathSegment ?: "file"
 
+    fun bundled(): Set<String> = ctx.assets.list("models")?.toSet() ?: emptySet()
+
     /** Копирует модели, вшитые в APK (assets/models), в приватную папку — ORT читает по пути. */
     fun installBundled(onProgress: (String, Float) -> Unit) {
         val have = ctx.assets.list("models")?.toSet() ?: return

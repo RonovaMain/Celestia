@@ -1,9 +1,12 @@
 package dev.ronova.celestia.core.pth
 
-import java.io.InputStream
+import android.content.Context
+import android.net.Uri
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 
 enum class DType { F32, F16, BF16, F64, OTHER }
 
@@ -174,48 +177,78 @@ object PthStream {
     }
 
     /**
-     * Один проход по .pth (zip) без загрузки файла в память.
-     * [chooseKeys] получает заголовок и возвращает нужные имена тензоров (остальные просто пропускаются).
+     * Открывает .pth как zip через центральный каталог (java.util.zip.ZipFile): не зависит от порядка записей,
+     * размеров в локальных заголовках и data descriptor — всё, на чём спотыкается ZipInputStream.
+     * Весь файл в память не читается: читаются только data.pkl и хранилища нужных тензоров.
+     */
+    fun <T> withZip(ctx: Context, uri: Uri, block: (ZipFile) -> T): T {
+        val pfd = ctx.contentResolver.openFileDescriptor(uri, "r") ?: error("Не удалось открыть файл")
+        var copy: File? = null
+        try {
+            // 1) прямо по дескриптору (без копирования); 2) если не вышло — копия в кэш
+            val zf = runCatching { ZipFile("/proc/self/fd/${pfd.fd}") }.getOrNull() ?: run {
+                val f = File(ctx.cacheDir, "pick.pth").also { copy = it }
+                java.io.FileInputStream(pfd.fileDescriptor).channel.use { ch ->
+                    f.outputStream().channel.use { out ->
+                        val size = ch.size()
+                        var pos = 0L
+                        while (pos < size) {
+                            val n = ch.transferTo(pos, size - pos, out)
+                            if (n <= 0) break
+                            pos += n
+                        }
+                    }
+                }
+                try { ZipFile(f) } catch (e: java.util.zip.ZipException) {
+                    error("Это не .pth в формате torch.save (zip): ${e.message}")
+                }
+            }
+            return zf.use(block)
+        } finally {
+            runCatching { pfd.close() }
+            copy?.delete()
+        }
+    }
+
+    /**
+     * [chooseKeys] получает заголовок и возвращает нужные имена тензоров (остальные хранилища не читаются).
      * [sink] вызывается по мере чтения, в RAM одновременно не больше одного хранилища (одного тензора).
      */
-    fun stream(
-        input: InputStream,
+    fun read(
+        zf: ZipFile,
         chooseKeys: (PthHeader) -> Set<String>,
         sink: (key: String, data: FloatArray) -> Unit,
         progress: (Float) -> Unit = {},
     ) {
-        ZipInputStream(input.buffered(1 shl 16)).use { zis ->
-            var byStorage: Map<String, List<Pair<String, TensorRef>>>? = null
-            var total = 1
-            var done = 0
-            var e = zis.nextEntry
-            while (e != null) {
-                val name = e.name
-                if (name.endsWith("data.pkl")) {
-                    val header = parseHeader(zis.readBytes())
-                    val keys = chooseKeys(header)
-                    val m = HashMap<String, MutableList<Pair<String, TensorRef>>>()
-                    for (k in keys) {
-                        val t = header.tensors[k] ?: continue
-                        m.getOrPut(t.storage.key) { ArrayList() }.add(k to t)
-                    }
-                    byStorage = m
-                    total = keys.size.coerceAtLeast(1)
-                } else if (name.contains("/data/") || name.startsWith("data/")) {
-                    val map = byStorage ?: error("В архиве data.pkl идёт не первым: такой .pth не поддержан")
-                    val list = map[name.substringAfterLast('/')]
-                    if (list != null) {
-                        val bytes = zis.readBytes()
-                        for ((k, t) in list) {
-                            sink(k, extract(bytes, t))
-                            done++
-                            progress(done.toFloat() / total)
-                        }
-                    }
-                }
-                e = zis.nextEntry
+        var pklEntry: ZipEntry? = null
+        val storages = HashMap<String, ZipEntry>()
+        for (e in zf.entries()) {
+            if (e.isDirectory) continue
+            val n = e.name
+            if (n.endsWith("/data.pkl") || n == "data.pkl") pklEntry = e
+            else if (n.contains("/data/") || n.startsWith("data/")) storages[n.substringAfterLast('/')] = e
+        }
+        val pe = pklEntry ?: error("Это не .pth в формате torch.save: в архиве нет data.pkl")
+        val pkl = zf.getInputStream(pe).use { it.readBytes() }
+        check(pkl.isNotEmpty()) { "data.pkl пустой (${pe.name}, size=${pe.size})" }
+        val header = parseHeader(pkl)
+        val keys = chooseKeys(header)
+
+        val byStorage = HashMap<String, MutableList<Pair<String, TensorRef>>>()
+        for (k in keys) {
+            val t = header.tensors[k] ?: continue
+            byStorage.getOrPut(t.storage.key) { ArrayList() }.add(k to t)
+        }
+        var done = 0
+        val total = keys.size.coerceAtLeast(1)
+        for ((sk, list) in byStorage) {
+            val entry = storages[sk] ?: error("В архиве нет хранилища $sk")
+            val bytes = zf.getInputStream(entry).use { it.readBytes() }
+            for ((k, t) in list) {
+                sink(k, extract(bytes, t))
+                done++
+                progress(done.toFloat() / total)
             }
-            check(byStorage != null) { "Это не .pth в формате torch.save (zip): data.pkl не найден" }
         }
     }
 

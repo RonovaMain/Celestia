@@ -19,6 +19,7 @@ import dev.ronova.celestia.core.pth.PthToOnnx
 import dev.ronova.celestia.service.ConvertService
 import dev.ronova.celestia.service.JobBus
 import dev.ronova.celestia.service.JobSpec
+import dev.ronova.celestia.service.JobState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -30,9 +31,24 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     var voices by mutableStateOf(store.voices()); private set
     var outputs by mutableStateOf(store.outputs()); private set
     var engineReady by mutableStateOf(EngineKind.entries.associateWith { store.engineFile(it).exists() }); private set
-    var busy by mutableStateOf<String?>(null); private set
-    var busyProgress by mutableFloatStateOf(-1f); private set
+
+    var tab by mutableIntStateOf(0)
     var message by mutableStateOf<String?>(null)
+
+    // установка встроенных моделей (ContentVec/RMVPE/FCPE из APK)
+    var installing by mutableStateOf<String?>(null); private set
+    var installProgress by mutableFloatStateOf(0f); private set
+
+    // импорт голоса / индекса / замена модели
+    var importing by mutableStateOf<String?>(null); private set
+    var importProgress by mutableFloatStateOf(-1f); private set
+
+    // форма «Добавить голос»
+    var newPth by mutableStateOf<Uri?>(null); private set
+    var newPthName by mutableStateOf(""); private set
+    var newIndex by mutableStateOf<Uri?>(null); private set
+    var newIndexName by mutableStateOf(""); private set
+    var newName by mutableStateOf("")
 
     // настройки (хранятся)
     var threads by mutableIntStateOf(store.getInt("threads", 4)); private set
@@ -59,16 +75,9 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     private var player: MediaPlayer? = null
     var playing by mutableStateOf<String?>(null); private set
 
-    init {
-        busy = "Подготавливаю встроенные модели (один раз)…"
-        viewModelScope.launch(Dispatchers.IO) {
-            try { store.installBundled { _, p -> busyProgress = p } }
-            catch (e: Throwable) { message = "Не удалось установить встроенные модели: ${e.message}" }
-            finally { busy = null; busyProgress = -1f; refresh() }
-        }
-    }
-
     val voice: VoiceMeta? get() = voices.firstOrNull { it.id == voiceId }
+
+    init { installModels() }
 
     fun changeThreads(v: Int) { threads = v; store.put("threads", v) }
     fun changeXnnpack(v: Boolean) { xnnpack = v; store.put("xnnpack", v) }
@@ -78,8 +87,10 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         runCatching { app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
-    fun pickInput(uri: Uri) { grant(uri); input = uri; inputName = store.displayName(uri) }
-    fun pickMinus(uri: Uri) { grant(uri); minus = uri; minusName = store.displayName(uri) }
+    private fun friendly(e: Throwable): String = when (e) {
+        is OutOfMemoryError -> "Не хватило памяти. Закройте другие приложения или уберите .index."
+        else -> (e.message ?: e.toString()).take(400)
+    }
 
     private fun refresh() {
         voices = store.voices(); outputs = store.outputs()
@@ -87,39 +98,28 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         if (voice == null) voiceId = voices.firstOrNull()?.id
     }
 
-    private inline fun work(title: String, crossinline block: () -> Unit) {
-        if (busy != null) return
-        busy = title; busyProgress = -1f
+    /** Все импорты идут через одну точку; если один уже идёт, пользователь это видит, а не получает тишину. */
+    private fun launchImport(title: String, block: () -> Unit) {
+        if (importing != null) { message = "Подождите, ещё идёт: $importing"; return }
+        importing = title; importProgress = -1f
         viewModelScope.launch(Dispatchers.IO) {
-            try { block() } catch (e: Throwable) {
-                message = (e.message ?: e.toString()).take(300)
-            } finally { busy = null; busyProgress = -1f; refresh() }
+            try { block() } catch (e: Throwable) { message = friendly(e) }
+            finally { importing = null; importProgress = -1f; refresh() }
         }
     }
 
-    fun importPth(uri: Uri) {
-        val name = store.displayName(uri).substringBeforeLast('.')
-        work("Конвертирую «$name» в ONNX…") {
-            val dir = File(store.voicesDir, UUID.randomUUID().toString().take(8))
-            app.contentResolver.openInputStream(uri)!!.use { PthToOnnx.convert(app, it, dir, name) { p -> busyProgress = p } }
-            voiceId = dir.name
+    // ---------- встроенные модели ----------
+    fun installModels() {
+        if (installing != null) return
+        installing = "Подготавливаю встроенные модели (один раз)…"; installProgress = 0f
+        viewModelScope.launch(Dispatchers.IO) {
+            try { store.installBundled { t, p -> installing = "Копирую модель: $t"; installProgress = p } }
+            catch (e: Throwable) { message = "Не удалось установить встроенные модели: ${friendly(e)}" }
+            finally { installing = null; refresh() }
         }
     }
 
-    fun importIndex(v: VoiceMeta, uri: Uri) = work("Проверяю индекс…") {
-        val tmp = File(store.tmpDir, "idx.tmp")
-        store.copy(uri, tmp)
-        try {
-            val idx = FaissIndex.load(tmp)
-            check(idx.dim == 768) { "Индекс на ${idx.dim} измерений: нужен v2 (768)" }
-            tmp.copyTo(File(v.dir, "voice.index"), overwrite = true)
-        } finally { tmp.delete() }
-    }
-
-    fun removeIndex(v: VoiceMeta) { File(v.dir, "voice.index").delete(); refresh() }
-    fun deleteVoice(v: VoiceMeta) { v.dir.deleteRecursively(); refresh() }
-
-    fun importEngine(kind: EngineKind, uri: Uri) = work("Копирую ${kind.title}…") {
+    fun importEngine(kind: EngineKind, uri: Uri) = launchImport("Копирую ${kind.title}…") {
         val tmp = File(store.engineDir, kind.file + ".tmp")
         store.copy(uri, tmp)
         try { Ort.open(tmp.absolutePath, 1, false).close() } catch (e: Throwable) {
@@ -128,23 +128,77 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         tmp.renameTo(store.engineFile(kind))
     }
 
+    // ---------- голоса ----------
+    fun pickPth(uri: Uri) {
+        grant(uri); newPth = uri; newPthName = store.displayName(uri)
+        if (newName.isBlank()) newName = newPthName.substringBeforeLast('.')
+    }
+
+    fun pickNewIndex(uri: Uri) { grant(uri); newIndex = uri; newIndexName = store.displayName(uri) }
+
+    fun clearForm() { newPth = null; newPthName = ""; newIndex = null; newIndexName = ""; newName = "" }
+
+    private fun copyIndex(uri: Uri, dir: File) {
+        val tmp = File(store.tmpDir, "idx.tmp")
+        store.copy(uri, tmp)
+        try {
+            val idx = FaissIndex.load(tmp)
+            check(idx.dim == 768) { "Индекс на ${idx.dim} измерений: нужен RVC v2 (768)" }
+            tmp.copyTo(File(dir, "voice.index"), overwrite = true)
+        } finally { tmp.delete() }
+    }
+
+    /** .pth -> ONNX (+ по желанию .index) одним действием. */
+    fun addVoice() {
+        val pth = newPth ?: run { message = "Сначала выберите файл .pth"; return }
+        val idx = newIndex
+        val name = newName.trim().ifEmpty { newPthName.substringBeforeLast('.') }
+        launchImport("Конвертирую «$name» в ONNX…") {
+            val dir = File(store.voicesDir, UUID.randomUUID().toString().take(8))
+            PthToOnnx.convert(app, pth, dir, name) { p -> importProgress = p }
+            voiceId = dir.name
+            var note = "Голос «$name» добавлен."
+            if (idx != null) {
+                importProgress = -1f; importing = "Проверяю .index…"
+                note += try { copyIndex(idx, dir); " Index подключён." } catch (e: Throwable) { " Но .index не подошёл: ${friendly(e)}" }
+            }
+            clearForm()
+            message = note
+        }
+    }
+
+    fun attachIndex(v: VoiceMeta, uri: Uri) = launchImport("Проверяю .index…") {
+        copyIndex(uri, v.dir)
+        message = "Index подключён к «${v.name}»."
+    }
+
+    fun removeIndex(v: VoiceMeta) { File(v.dir, "voice.index").delete(); refresh() }
+    fun deleteVoice(v: VoiceMeta) { v.dir.deleteRecursively(); refresh() }
+    fun selectVoice(v: VoiceMeta) { voiceId = v.id; tab = 1 }
+
+    // ---------- конвертация ----------
+    fun pickInput(uri: Uri) { grant(uri); input = uri; inputName = store.displayName(uri) }
+    fun pickMinus(uri: Uri) { grant(uri); minus = uri; minusName = store.displayName(uri) }
+
     fun start(): Boolean {
-        val v = voice ?: run { message = "Выберите голос"; return false }
+        val v = voice ?: run { message = "Выберите голос (вкладка «Голоса»)"; return false }
         val inp = input ?: run { message = "Выберите аудиофайл"; return false }
         if (mixer && minus == null) { message = "Выберите минусовку или выключите микшер"; return false }
-        if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: добавьте её на вкладке «Движок»"; return false }
+        if (installing != null) { message = "Модели ещё устанавливаются, подождите"; return false }
+        if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Движок»"; return false }
         val f0k = if (f0Mode == F0Mode.RMVPE) EngineKind.RMVPE else EngineKind.FCPE
-        if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: добавьте её на вкладке «Движок»"; return false }
+        if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Движок»"; return false }
         JobBus.pending = JobSpec(
             voice = v, input = inp, minus = if (mixer) minus else null,
             vocalGain = vocalGain, minusGain = minusGain,
             params = Params(
                 pitchShift = pitch, indexRate = if (v.hasIndex) indexRate else 0f, protect = protect,
-                rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode, threads = threads, windowSec = windowSec, xnnpack = xnnpack,
+                rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode,
+                threads = threads, windowSec = windowSec, xnnpack = xnnpack,
             ),
             outName = inputName.substringBeforeLast('.') + " · " + v.name,
         )
-        JobBus.state.value = dev.ronova.celestia.service.JobState(running = true, message = "Запуск…")
+        JobBus.state.value = JobState(running = true, message = "Запуск…")
         ConvertService.start(app)
         return true
     }

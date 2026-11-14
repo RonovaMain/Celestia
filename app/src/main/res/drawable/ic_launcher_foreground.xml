@@ -4,14 +4,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- облако по центру: три круга + основание, один контур -->
-    <path android:pathData="M29,58 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z M38,48 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z M54,55 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0 Z M40,58 L40,70 L66,70 L66,58 Z">
+    <!-- облако: основание-капсула + три круга, все контуры по часовой стрелке -->
+    <path android:pathData="M36.5,54 H71.5 A8.5,8.5 0 0 1 71.5,71 H36.5 A8.5,8.5 0 0 1 36.5,54 Z M33,55 A10,10 0 1,1 53,55 A10,10 0 1,1 33,55 Z M42,50 A14,14 0 1,1 70,50 A14,14 0 1,1 42,50 Z M59,57 A9,9 0 1,1 77,57 A9,9 0 1,1 59,57 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="29"
-                android:startY="34"
-                android:endX="78"
+                android:startX="28"
+                android:startY="40"
+                android:endX="80"
                 android:endY="70">
                 <item android:offset="0" android:color="#FFFF8BC7" />
                 <item android:offset="1" android:color="#FF7DD3FC" />

@@ -3,7 +3,7 @@ package dev.ronova.celestia.core.pth
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
-import java.io.InputStream
+import android.net.Uri
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -65,7 +65,7 @@ object PthToOnnx {
         return out
     }
 
-    fun convert(ctx: Context, pth: InputStream, dest: File, name: String, onProgress: (Float) -> Unit) {
+    fun convert(ctx: Context, pth: Uri, dest: File, name: String, onProgress: (Float) -> Unit) {
         dest.mkdirs()
         var tpl: TemplateInfo? = null
         var raf: RandomAccessFile? = null
@@ -85,8 +85,8 @@ object PthToOnnx {
                 written.add(key)
             }
 
-            PthStream.stream(
-                pth,
+            PthStream.withZip(ctx, pth) { zf -> PthStream.read(
+                zf,
                 chooseKeys = { h ->
                     val t = pickTemplate(ctx, h).also { tpl = it }
                     ctx.assets.open("templates/${t.id}.onnx").use { i -> File(dest, "model.onnx").outputStream().use { o -> i.copyTo(o) } }
@@ -111,7 +111,7 @@ object PthToOnnx {
                     }
                 },
                 progress = onProgress,
-            )
+            ) }
             val t = tpl ?: error("Не удалось прочитать .pth")
             val missing = t.tensors.keys - written
             check(missing.isEmpty()) { "В .pth нет весов: ${missing.take(5).joinToString()}" }
