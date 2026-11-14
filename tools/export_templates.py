@@ -17,8 +17,25 @@ import onnx
 from onnx import external_data_helper as edh
 
 RVC, OUT = sys.argv[1], sys.argv[2]
-sys.path.insert(0, RVC)
-from infer.lib.infer_pack.models_onnx import SynthesizerTrnMsNSFsidM  # noqa: E402
+
+# Раскладка RVC менялась (infer_pack / lib/infer_pack / infer/lib/infer_pack), поэтому ищем models_onnx.py сами,
+# копируем его папку в пакет rvcpkg и переписываем импорты вида "<что-угодно>.infer_pack" на rvcpkg.
+import glob, re, shutil
+found = sorted(glob.glob(os.path.join(RVC, "**", "models_onnx.py"), recursive=True))
+if not found:
+    sys.exit("models_onnx.py не найден в " + RVC + " — структура репозитория RVC изменилась")
+src_dir = os.path.dirname(found[0])
+print("models_onnx.py:", found[0])
+pkg_root = tempfile.mkdtemp()
+pkg = os.path.join(pkg_root, "rvcpkg")
+shutil.copytree(src_dir, pkg, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+open(os.path.join(pkg, "__init__.py"), "a").close()
+for f in glob.glob(os.path.join(pkg, "**", "*.py"), recursive=True):
+    t = open(f, encoding="utf-8").read()
+    t = re.sub(r"(?m)^(\s*(?:from|import)\s+)(?:[\w.]*\.)?infer_pack\b", r"\1rvcpkg", t)
+    open(f, "w", encoding="utf-8").write(t)
+sys.path.insert(0, pkg_root)
+from rvcpkg.models_onnx import SynthesizerTrnMsNSFsidM  # noqa: E402
 
 # порядок = cpt["config"] в .pth RVC
 def config(sr, rates, kernels):

@@ -32,6 +32,15 @@ jobs:
           pip install numpy==1.26.4 onnx==1.16.2 onnxruntime==1.19.2
           pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
           git clone --depth 1 https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI rvc
+          echo "--- файлы с onnx/infer_pack в клоне:"; find rvc -iname "*models_onnx*" -o -type d -name infer_pack | head
+          # запасной вариант, если в клоне раскладка изменилась: те же исходники из зеркала на Hugging Face
+          if [ -z "$(find rvc -name models_onnx.py)" ]; then
+            mkdir -p rvc/lib/infer_pack
+            for f in attentions commons models_onnx modules transforms; do
+              curl -fL --retry 5 -o rvc/lib/infer_pack/$f.py \
+                "https://huggingface.co/nevreal/easygui/resolve/main/Retrieval-based-Voice-Conversion-WebUI/lib/infer_pack/$f.py"
+            done
+          fi
           python tools/export_templates.py rvc app/src/main/assets/templates
           ls -la app/src/main/assets/templates
 
