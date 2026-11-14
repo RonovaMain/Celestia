@@ -107,9 +107,10 @@ for tid, (sr, rates, kernels) in CONFIGS.items():
             sys.exit(f"[{tid}] форма {name}: граф {tuple(t.dims)} != state_dict {tuple(arr.shape)}")
         offset = (offset + ALIGN - 1) // ALIGN * ALIGN
         nbytes = arr.size * 4
+        # set_external_data требует, чтобы raw_data ещё был в тензоре; данные чистим уже после него
+        edh.set_external_data(t, location="weights.bin", offset=offset, length=nbytes)
         for f in ("raw_data", "float_data", "int32_data", "int64_data", "double_data"):
             t.ClearField(f)
-        edh.set_external_data(t, location="weights.bin", offset=offset, length=nbytes)
         manifest[name] = {"offset": offset, "numel": int(arr.size)}
         offset += nbytes
     total = (offset + ALIGN - 1) // ALIGN * ALIGN
