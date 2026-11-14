@@ -1,0 +1,86 @@
+name: Build signed APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 1. ONNX-шаблоны генератора RVC v2 (граф без весов). Всё тянется из pip и GitHub.
+      - name: Export ONNX templates
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.26.4 onnx==1.16.2 onnxruntime==1.19.2
+          pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          git clone --depth 1 https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI rvc
+          python tools/export_templates.py rvc app/src/main/assets/templates
+          ls -la app/src/main/assets/templates
+
+      # 1b. Вшиваемые модели: ContentVec, RMVPE, FCPE (ONNX). Кэш, чтобы не качать ~600 МБ каждый раз.
+      - name: Cache voice models
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models
+          key: celestia-models-v1
+
+      - name: Download voice models
+        run: |
+          mkdir -p app/src/main/assets/models
+          cd app/src/main/assets/models
+          dl() { [ -s "$2" ] || curl -fL --retry 5 --retry-delay 5 -o "$2" "$1"; }
+          dl https://huggingface.co/NaruseMioShirakana/MoeSS-SUBModel/resolve/main/vec-768-layer-12.onnx hubert.onnx
+          echo "b3886e7dff1495cda514f94f4680a7b1261e05d6929f5c764cdb17934b413c2a  hubert.onnx" | sha256sum -c -
+          dl https://huggingface.co/Scicom-intl/rmvpe-onnx/resolve/main/rmvpe.onnx rmvpe.onnx
+          dl https://huggingface.co/Scicom-intl/fcpe-onnx/resolve/main/fcpe.onnx fcpe.onnx
+          ls -la
+          cd -
+          python tools/check_models.py app/src/main/assets/models
+
+      # 2. Ключ подписи: постоянный из секретов GitHub; если секретов нет — обычный debug-ключ.
+      - name: Prepare keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${KS_KEYPASS:-$KS_PASS}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Секреты подписи не заданы: APK будет подписан debug-ключом."
+          fi
+
+      # 3. Сборка: Gradle, ONNX Runtime, Compose и остальное скачиваются сами.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build release APK
+        run: gradle --no-daemon assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Celestia-signed-apk
+          path: app/build/outputs/apk/release/*.apk
+          compression-level: 0
