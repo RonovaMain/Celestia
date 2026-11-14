@@ -17,7 +17,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      # Android SDK уже есть на образе ubuntu-24.04 (ANDROID_HOME); только принимаем лицензии.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - uses: actions/setup-python@v5
         with:
