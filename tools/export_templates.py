@@ -62,6 +62,16 @@ for tid, (sr, rates, kernels) in CONFIGS.items():
             torch.nn.utils.remove_weight_norm(m)
         except ValueError:
             pass
+    # torch.onnx.export склеивает инициализаторы с одинаковыми значениями (нулевые bias/post, единичные gamma),
+    # и такие веса пропадают из графа под своими именами. Делаем все веса уникальными случайными:
+    # значения шаблона всё равно заменяются весами из .pth.
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for pname, prm in net.named_parameters():
+            if pname.endswith("gamma"):
+                prm.copy_(1 + 0.01 * torch.randn_like(prm))
+            else:
+                prm.copy_(0.05 * torch.randn_like(prm))
     n = 200
     args = (
         torch.rand(1, n, 768), torch.LongTensor([n]),
