@@ -176,37 +176,41 @@ object PthStream {
         )
     }
 
+    /** Быстрая проверка, что это torch-zip и он читается: data.pkl открывается и начинается с PROTO (0x80). */
+    private fun checkTorchZip(zf: ZipFile) {
+        val e = zf.entries().asSequence().firstOrNull { !it.isDirectory && (it.name.endsWith("/data.pkl") || it.name == "data.pkl") }
+            ?: error("в архиве нет data.pkl")
+        zf.getInputStream(e).use { check(it.read() == 0x80) { "data.pkl не читается" } }
+    }
+
     /**
-     * Открывает .pth как zip через центральный каталог (java.util.zip.ZipFile): не зависит от порядка записей,
-     * размеров в локальных заголовках и data descriptor — всё, на чём спотыкается ZipInputStream.
-     * Весь файл в память не читается: читаются только data.pkl и хранилища нужных тензоров.
+     * Открывает .pth как zip через центральный каталог (java.util.zip.ZipFile): не зависит от порядка записей и
+     * размеров в локальных заголовках. Весь файл в память не читается: читаются только data.pkl и нужные тензоры.
+     *
+     * 1) быстрый путь: сразу по дескриптору (/proc/self/fd), без копирования — только если файл там реально читается;
+     * 2) иначе обычное последовательное копирование потока в кэш. Работает с любым файловым провайдером
+     *    (на некоторых планшетах дескриптор не поддерживает произвольный доступ, и копия «по каналу» портится).
      */
     fun <T> withZip(ctx: Context, uri: Uri, block: (ZipFile) -> T): T {
-        val pfd = ctx.contentResolver.openFileDescriptor(uri, "r") ?: error("Не удалось открыть файл")
-        var copy: File? = null
+        val direct = runCatching {
+            ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { pfd ->
+                val zf = ZipFile("/proc/self/fd/${pfd.fd}")
+                try { checkTorchZip(zf) } catch (t: Throwable) { zf.close(); throw t }
+                zf
+            }
+        }.getOrNull()
+        if (direct != null) return direct.use(block)
+
+        val f = File(ctx.cacheDir, "pick.pth")
         try {
-            // 1) прямо по дескриптору (без копирования); 2) если не вышло — копия в кэш
-            val zf = runCatching { ZipFile("/proc/self/fd/${pfd.fd}") }.getOrNull() ?: run {
-                val f = File(ctx.cacheDir, "pick.pth").also { copy = it }
-                java.io.FileInputStream(pfd.fileDescriptor).channel.use { ch ->
-                    f.outputStream().channel.use { out ->
-                        val size = ch.size()
-                        var pos = 0L
-                        while (pos < size) {
-                            val n = ch.transferTo(pos, size - pos, out)
-                            if (n <= 0) break
-                            pos += n
-                        }
-                    }
-                }
-                try { ZipFile(f) } catch (e: java.util.zip.ZipException) {
-                    error("Это не .pth в формате torch.save (zip): ${e.message}")
-                }
+            val src = ctx.contentResolver.openInputStream(uri) ?: error("Не удалось открыть файл")
+            src.use { i -> f.outputStream().use { o -> i.copyTo(o, 1 shl 16) } }
+            val zf = try { ZipFile(f) } catch (e: java.util.zip.ZipException) {
+                error("Это не .pth в формате torch.save (zip): ${e.message}; размер файла ${f.length()} байт")
             }
             return zf.use(block)
         } finally {
-            runCatching { pfd.close() }
-            copy?.delete()
+            f.delete()
         }
     }
 

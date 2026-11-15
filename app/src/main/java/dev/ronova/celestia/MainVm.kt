@@ -185,9 +185,9 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         val inp = input ?: run { message = "Выберите аудиофайл"; return false }
         if (mixer && minus == null) { message = "Выберите минусовку или выключите микшер"; return false }
         if (installing != null) { message = "Модели ещё устанавливаются, подождите"; return false }
-        if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Движок»"; return false }
+        if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Настройки»"; return false }
         val f0k = if (f0Mode == F0Mode.RMVPE) EngineKind.RMVPE else EngineKind.FCPE
-        if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Движок»"; return false }
+        if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Настройки»"; return false }
         JobBus.pending = JobSpec(
             voice = v, input = inp, minus = if (mixer) minus else null,
             vocalGain = vocalGain, minusGain = minusGain,

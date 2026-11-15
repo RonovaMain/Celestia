@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -60,7 +61,7 @@ import java.util.Locale
 
 @Composable
 fun App(vm: MainVm) {
-    val titles = listOf("Голоса", "Конвертация", "Движок")
+    val titles = listOf("Голоса", "Конвертация", "Настройки")
     val icons = listOf("🎙", "🎚", "⚙")
     Scaffold(bottomBar = {
         NavigationBar {
@@ -383,5 +384,29 @@ fun EngineScreen(vm: MainVm) {
             Switch(vm.xnnpack, { vm.changeXnnpack(it) })
         }
         Text("NNAPI и GPU-делегаты в приложении не используются вообще.", style = MaterialTheme.typography.bodySmall)
+
+        val ctx = LocalContext.current
+        val uriHandler = LocalUriHandler.current
+        val version = remember {
+            runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "—"
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("О программе", style = MaterialTheme.typography.titleMedium)
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CloudLogo(48.dp)
+                    Column {
+                        Text("Celestia", style = MaterialTheme.typography.titleLarge)
+                        Text("Версия $version", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("Офлайн-смена голоса на основе RVC v2. Всё работает на устройстве: без интернета, облаков и телеметрии.", style = MaterialTheme.typography.bodyMedium)
+                Text("Автор: RonovaDev", style = MaterialTheme.typography.bodyLarge)
+                TextButton({ runCatching { uriHandler.openUri("https://github.com/RonovaMain") } }) {
+                    Text("GitHub: RonovaMain")
+                }
+            }
+        }
     }
 }
