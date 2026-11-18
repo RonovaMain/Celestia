@@ -36,6 +36,22 @@ data class StemSet(val dir: File, val name: String, val model: String, val creat
     }
 }
 
+/** Установленный голос RVC: папка с model.onnx, weights.bin, voice.json и (опционально) voice.index. */
+data class VoiceMeta(val dir: File, val name: String, val sr: Int, val hop: Int) {
+    val id: String get() = dir.name
+    val hasIndex: Boolean get() = File(dir, "voice.index").exists()
+
+    companion object {
+        fun read(dir: File): VoiceMeta? {
+            if (!dir.isDirectory || !File(dir, "model.onnx").exists()) return null
+            return runCatching {
+                val j = JSONObject(File(dir, "voice.json").readText())
+                VoiceMeta(dir, j.getString("name"), j.getInt("sr"), j.optInt("hop", 320))
+            }.getOrNull()
+        }
+    }
+}
+
 class Store(private val ctx: Context) {
     val voicesDir = File(ctx.filesDir, "voices").apply { mkdirs() }
     val engineDir = File(ctx.filesDir, "engine").apply { mkdirs() }

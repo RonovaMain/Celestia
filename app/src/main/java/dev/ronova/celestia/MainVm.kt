@@ -247,15 +247,17 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Настройки»"; return false }
         val f0k = if (f0Mode == F0Mode.RMVPE) EngineKind.RMVPE else EngineKind.FCPE
         if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Настройки»"; return false }
-        JobBus.pending = JobSpec(
-            voice = v, input = inp, minus = if (mixer) minus else null,
-            vocalGain = vocalGain, minusGain = minusGain,
-            params = Params(
-                pitchShift = pitch, indexRate = if (v.hasIndex) indexRate else 0f, protect = protect,
-                rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode,
-                threads = threads, windowSec = windowSec, xnnpack = xnnpack,
-            ),
-            outName = inputName.substringBeforeLast('.') + " · " + v.name,
+        JobBus.pending = JobRequest.Convert(
+            JobSpec(
+                voice = v, input = inp, minus = if (mixer) minus else null,
+                vocalGain = vocalGain, minusGain = minusGain,
+                params = Params(
+                    pitchShift = pitch, indexRate = if (v.hasIndex) indexRate else 0f, protect = protect,
+                    rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode,
+                    threads = threads, windowSec = windowSec, xnnpack = xnnpack,
+                ),
+                outName = inputName.substringBeforeLast('.') + " · " + v.name,
+            )
         )
         JobBus.state.value = JobState(running = true, message = "Запуск…")
         ConvertService.start(app)
