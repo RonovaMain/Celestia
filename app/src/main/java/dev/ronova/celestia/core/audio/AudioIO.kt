@@ -31,6 +31,11 @@ class Pcm(val sampleRate: Int, val channels: Int, val data: FloatArray) {
 object AudioIO {
     /** Любой формат, который умеет MediaCodec устройства (mp3/aac/flac/wav/ogg…). */
     fun decode(ctx: Context, uri: Uri, isCancelled: () -> Boolean = { false }): Pcm {
+        // WAV из собственной папки приложения (стемы, озвучка) читаем напрямую, без MediaCodec
+        if (uri.scheme == "file") {
+            val f = File(uri.path ?: "")
+            if (f.extension.equals("wav", ignoreCase = true)) runCatching { return Wav.read(f) }
+        }
         val ex = MediaExtractor()
         ex.setDataSource(ctx, uri, null)
         var track = -1

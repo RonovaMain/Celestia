@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/src/main/assets/models
-          key: celestia-models-v1
+          key: celestia-models-v2
 
       - name: Download voice models
         run: |
@@ -60,6 +60,22 @@ jobs:
           echo "b3886e7dff1495cda514f94f4680a7b1261e05d6929f5c764cdb17934b413c2a  hubert.onnx" | sha256sum -c -
           dl https://huggingface.co/Scicom-intl/rmvpe-onnx/resolve/main/rmvpe.onnx rmvpe.onnx
           dl https://huggingface.co/Scicom-intl/fcpe-onnx/resolve/main/fcpe.onnx fcpe.onnx
+          # Разделение вокала (MDX-Net из UVR). Скачиваем с запасным зеркалом; если не вышло — только предупреждение:
+          # приложение покажет «модель не установлена» и даст выбрать свой .onnx.
+          dl_try() {
+            out="$1"; shift
+            [ -s "$out" ] && return 0
+            for u in "$@"; do
+              if curl -fL --retry 3 --retry-delay 5 -o "$out.part" "$u"; then mv "$out.part" "$out"; return 0; fi
+            done
+            rm -f "$out.part"; echo "::warning::Не удалось скачать $out"; return 0
+          }
+          dl_try mdx_voc_ft.onnx \
+            https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Voc_FT.onnx \
+            https://huggingface.co/seanghay/uvr_models/resolve/main/UVR-MDX-NET-Voc_FT.onnx
+          dl_try mdx_kim_vocal2.onnx \
+            https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx \
+            https://huggingface.co/seanghay/uvr_models/resolve/main/Kim_Vocal_2.onnx
           ls -la
           cd -
           python tools/check_models.py app/src/main/assets/models

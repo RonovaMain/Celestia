@@ -29,13 +29,15 @@ object Ort {
      * ТОЛЬКО CPU Execution Provider. Здесь намеренно нет addNnapi()/addQnn()/GPU-делегатов:
      * на MediaTek (Mali) они вешают устройство.
      */
-    fun open(path: String, threads: Int, xnnpack: Boolean): OrtSession {
+    fun open(path: String, threads: Int, xnnpack: Boolean, arena: Boolean = true): OrtSession {
         val o = OrtSession.SessionOptions()
         o.setIntraOpNumThreads(threads.coerceIn(1, 8))
         o.setInterOpNumThreads(1)
         o.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
         o.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
         o.setMemoryPatternOptimization(false)   // длины чанков меняются
+        // без арены ORT отдаёт память системе после каждого прогона: медленнее, но пик ОЗУ ниже (разделение музыки)
+        if (!arena) o.setCPUArenaAllocator(false)
         if (xnnpack) runCatching { o.addXnnpack(mapOf("intra_op_num_threads" to threads.toString())) }
         return env.createSession(path, o)
     }

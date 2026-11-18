@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.ronova.celestia.EngineKind
@@ -61,12 +62,12 @@ import java.util.Locale
 
 @Composable
 fun App(vm: MainVm) {
-    val titles = listOf("Голоса", "Конвертация", "Настройки")
-    val icons = listOf("🎙", "🎚", "⚙")
+    val titles = listOf("Голоса", "Конверсия", "Озвучка", "Разделение", "Настройки")
+    val icons = listOf("🎙", "🎚", "🗣", "✂", "⚙")
     Scaffold(bottomBar = {
         NavigationBar {
             titles.forEachIndexed { i, t ->
-                NavigationBarItem(selected = vm.tab == i, onClick = { vm.tab = i }, icon = { Text(icons[i]) }, label = { Text(t) })
+                NavigationBarItem(selected = vm.tab == i, onClick = { vm.tab = i }, icon = { Text(icons[i]) }, label = { Text(t, maxLines = 1, fontSize = 11.sp) })
             }
         }
     }) { pad ->
@@ -83,6 +84,8 @@ fun App(vm: MainVm) {
                 when (vm.tab) {
                     0 -> VoicesScreen(vm)
                     1 -> ConvertScreen(vm)
+                    2 -> TtsScreen(vm)
+                    3 -> SepScreen(vm)
                     else -> EngineScreen(vm)
                 }
             }
@@ -118,7 +121,7 @@ fun CloudLogo(logoSize: Dp = 48.dp) {
 }
 
 @Composable
-private fun Brand() {
+internal fun Brand() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CloudLogo(56.dp)
         Column {
@@ -129,7 +132,7 @@ private fun Brand() {
 }
 
 @Composable
-private fun Page(content: @Composable () -> Unit) {
+internal fun Page(content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -137,7 +140,7 @@ private fun Page(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Importing(vm: MainVm) {
+internal fun Importing(vm: MainVm) {
     vm.importing?.let { t ->
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -150,7 +153,7 @@ private fun Importing(vm: MainVm) {
 }
 
 @Composable
-private fun Labeled(
+internal fun Labeled(
     label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>,
     steps: Int = 0, enabled: Boolean = true, onChange: (Float) -> Unit,
 ) {
@@ -247,6 +250,15 @@ fun ConvertScreen(vm: MainVm) {
 
     Page {
         Text("Конвертация", style = MaterialTheme.typography.headlineSmall)
+
+        vm.note?.let { n ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(n, style = MaterialTheme.typography.bodyMedium)
+                    TextButton({ vm.note = null }) { Text("Скрыть") }
+                }
+            }
+        }
 
         Text("Голос", style = MaterialTheme.typography.titleMedium)
         if (vm.voices.isEmpty()) {

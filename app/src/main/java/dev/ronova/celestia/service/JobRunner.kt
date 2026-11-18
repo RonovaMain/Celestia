@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
 
 data class JobSpec(
     val voice: VoiceMeta,
-    val input: Uri,
+    val input: Uri?,
     val minus: Uri?,
     val vocalGain: Float,
     val minusGain: Float,
@@ -23,18 +23,48 @@ data class JobSpec(
     val outName: String,
 )
 
+/** Озвучка текста: системный TTS -> (выгрузка синтезатора) -> RVC. rvc == null — только озвучка без смены голоса. */
+data class TtsSpec(
+    val text: String,
+    val voiceName: String?,
+    val lang: String?,
+    val rate: Float,
+    val pitch: Float,
+    val pauseMs: Int,
+    val rvc: JobSpec?,
+    val outName: String,
+)
+
+/** Разделение трека на вокал и минус. */
+data class SepSpec(
+    val input: Uri,
+    val name: String,
+    val model: dev.ronova.celestia.SepModel,
+    val denoise: Boolean,
+    val smooth: Boolean,
+    val lowMem: Boolean,
+    val threads: Int,
+)
+
+sealed class JobRequest(val title: String) {
+    class Convert(val spec: JobSpec) : JobRequest("Конвертация голоса")
+    class Tts(val spec: TtsSpec) : JobRequest("Озвучка текста")
+    class Separate(val spec: SepSpec) : JobRequest("Разделение трека")
+}
+
 data class JobState(
     val running: Boolean = false,
     val progress: Float = 0f,
     val message: String = "",
     val result: File? = null,
     val error: String? = null,
+    val kind: String = "",
 )
 
 object JobBus {
     val state = MutableStateFlow(JobState())
     @Volatile var cancel = false
-    @Volatile var pending: JobSpec? = null
+    @Volatile var pending: JobRequest? = null
 }
 
 object JobRunner {
@@ -57,13 +87,18 @@ object JobRunner {
     }
 
     fun run(ctx: Context, store: Store, spec: JobSpec, report: (Float, String) -> Unit): File {
+        val cancelled = { JobBus.cancel }
+        report(0.01f, "Декодирую аудио…")
+        val pcm = AudioIO.decode(ctx, spec.input ?: error("Не выбран аудиофайл"), cancelled)
+        val x = AudioIO.resample(pcm.mono(), pcm.sampleRate, 16000)
+        return convert(ctx, store, x, spec, 0.04f, 0.94f, report)
+    }
+
+    /** Смена голоса для уже подготовленного моно-звука 16 кГц. Прогресс идёт в диапазоне p0..p1. */
+    fun convert(ctx: Context, store: Store, x: FloatArray, spec: JobSpec, p0: Float, p1: Float, report: (Float, String) -> Unit): File {
         val p = spec.params
         val sr = spec.voice.sr
         val cancelled = { JobBus.cancel }
-
-        report(0.01f, "Декодирую аудио…")
-        val pcm = AudioIO.decode(ctx, spec.input, cancelled)
-        val x = AudioIO.resample(pcm.mono(), pcm.sampleRate, 16000)
         require(x.size >= 3200) { "Аудио слишком короткое" }
 
         val win = roundTo(p.windowSec.coerceIn(4f, 8f))
@@ -115,7 +150,7 @@ object JobRunner {
                     val el = (System.nanoTime() - t0) / 1e9
                     val eta = if (done > 0.02f) (el / done - el).toInt() else -1
                     report(
-                        0.04f + 0.9f * done,
+                        p0 + (p1 - p0) * done,
                         "Фрагмент ${i + 1}/${chunks.size}" + if (eta >= 0) " · осталось ~%d:%02d".format(eta / 60, eta % 60) else "",
                     )
                 }
@@ -129,7 +164,7 @@ object JobRunner {
         while (dest.exists()) { dest = File(store.outDir, "$name (${n++}).wav") }
 
         if (spec.minus != null) {
-            report(0.96f, "Микширую с минусом…")
+            report(p1 + 0.02f, "Микширую с минусом…")
             val minus = AudioIO.decode(ctx, spec.minus, cancelled)
             AudioIO.mixToWav(raw, minus, sr, spec.vocalGain, spec.minusGain, dest)
         } else {
