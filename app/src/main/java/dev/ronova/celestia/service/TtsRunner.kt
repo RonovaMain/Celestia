@@ -4,6 +4,8 @@ import android.content.Context
 import dev.ronova.celestia.Store
 import dev.ronova.celestia.core.audio.AudioIO
 import dev.ronova.celestia.core.audio.Wav
+import dev.ronova.celestia.core.tts.EmbCatalog
+import dev.ronova.celestia.core.tts.EmbeddedTts
 import dev.ronova.celestia.core.tts.SystemTts
 import dev.ronova.celestia.core.tts.TextSplit
 import java.io.File
@@ -11,7 +13,7 @@ import kotlin.math.abs
 
 /**
  * Озвучка по очереди, чтобы не держать в памяти всё сразу:
- *  1) системный синтезатор пишет речь в файлы (его модель живёт в другом процессе) и закрывается;
+ *  1) синтезатор (встроенный Kokoro/Piper или системный) пишет речь и выгружается;
  *  2) только после этого загружается RVC (энкодер + F0 + генератор), конвертирует и тоже выгружается.
  */
 object TtsRunner {
@@ -20,26 +22,45 @@ object TtsRunner {
         val chunks = TextSplit.split(spec.text)
         require(chunks.isNotEmpty()) { "В тексте нет слов для озвучки" }
 
-        report(0.02f, "Запускаю системный синтезатор…")
         val parts = ArrayList<FloatArray>()
         var sr = 0
-        SystemTts(ctx).use { tts ->
-            check(tts.open()) {
-                "Системный синтезатор речи не запустился. Проверьте, что в настройках телефона выбран движок «Синтез речи» и установлены офлайн-голоса."
-            }
-            tts.select(spec.voiceName, spec.lang, spec.rate, spec.pitch)
-            val tmp = File(store.tmpDir, "tts_part.wav")
-            for ((i, c) in chunks.withIndex()) {
-                check(!cancelled()) { "Отменено" }
-                report(0.03f + 0.37f * i / chunks.size, "Синтез речи: ${i + 1}/${chunks.size}")
-                tts.synth(c, tmp, cancelled)
-                val pcm = Wav.read(tmp)
-                var m = pcm.mono()
-                if (sr == 0) sr = pcm.sampleRate else if (pcm.sampleRate != sr) m = AudioIO.resample(m, pcm.sampleRate, sr)
-                parts.add(m)
-            }
-            tmp.delete()
-        }   // синтезатор закрыт и выгружен здесь
+        if (spec.engine == "embedded") {
+            val v = EmbCatalog.byId(spec.embVoice) ?: error("Голос не найден")
+            report(0.02f, "Загружаю голос «${v.title}»…")
+            EmbeddedTts(ctx).use { e ->
+                try {
+                    e.open(v, spec.threads)
+                } catch (t: LinkageError) {
+                    throw IllegalStateException("Не удалось загрузить библиотеку sherpa-onnx: ${t.message}")
+                }
+                sr = e.sampleRate
+                for ((i, c) in chunks.withIndex()) {
+                    check(!cancelled()) { "Отменено" }
+                    report(0.05f + 0.35f * i / chunks.size, "Синтез речи: ${i + 1}/${chunks.size}")
+                    parts.add(e.synth(c, v.sid, spec.rate))
+                }
+            }   // модель синтеза выгружена здесь
+        } else {
+            report(0.02f, "Запускаю системный синтезатор…")
+            SystemTts(ctx).use { tts ->
+                check(tts.open()) {
+                    "Системный синтезатор речи не запустился. Выберите встроенный синтезатор Kokoro/Piper или установите офлайн-голоса в настройках телефона."
+                }
+                tts.select(spec.voiceName, spec.lang, spec.rate, spec.pitch)
+                val tmp = File(store.tmpDir, "tts_part.wav")
+                for ((i, c) in chunks.withIndex()) {
+                    check(!cancelled()) { "Отменено" }
+                    report(0.03f + 0.37f * i / chunks.size, "Синтез речи: ${i + 1}/${chunks.size}")
+                    tts.synth(c, tmp, cancelled)
+                    val pcm = Wav.read(tmp)
+                    var m = pcm.mono()
+                    if (sr == 0) sr = pcm.sampleRate else if (pcm.sampleRate != sr) m = AudioIO.resample(m, pcm.sampleRate, sr)
+                    parts.add(m)
+                }
+                tmp.delete()
+            }   // системный синтезатор закрыт
+        }
+        require(parts.isNotEmpty() && sr > 0) { "Синтезатор не вернул звук" }
 
         val pause = FloatArray(sr * spec.pauseMs.coerceIn(0, 3000) / 1000)
         val total = parts.sumOf { it.size } + pause.size * (parts.size - 1)

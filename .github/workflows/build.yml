@@ -80,6 +80,71 @@ jobs:
           cd -
           python tools/check_models.py app/src/main/assets/models
 
+      # 1c. Встроенный TTS: sherpa-onnx (Kokoro-82M int8 и Piper ru). Нативные библиотеки, Kotlin-API и модели —
+      # из одного релиза. Свой libonnxruntime.so sherpa переименовывается, чтобы не конфликтовать с ORT приложения.
+      - name: Cache TTS models
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/tts
+          key: celestia-tts-v1
+
+      - name: Fetch sherpa-onnx runtime and TTS models
+        env:
+          SHERPA: v1.13.8
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq patchelf bzip2
+          WS="$GITHUB_WORKSPACE"
+          mkdir -p /tmp/sh && cd /tmp/sh
+          curl -fL --retry 5 --retry-delay 5 -o android.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/$SHERPA/sherpa-onnx-$SHERPA-android.tar.bz2"
+          tar xf android.tar.bz2
+          J=$(find /tmp/sh -type d -path '*jniLibs/arm64-v8a' | head -1)
+          [ -n "$J" ] || { echo "::error::В архиве sherpa-onnx нет jniLibs/arm64-v8a"; find /tmp/sh -maxdepth 3 | head -30; exit 1; }
+          D="$WS/app/src/main/jniLibs/arm64-v8a"
+          mkdir -p "$D" && cp "$J"/*.so "$D"/
+          cd "$D"
+          if [ -f libonnxruntime.so ]; then
+            mv libonnxruntime.so libonnxruntime_sherpa.so
+            patchelf --set-soname libonnxruntime_sherpa.so libonnxruntime_sherpa.so
+            for f in lib*.so; do
+              [ "$f" = libonnxruntime_sherpa.so ] && continue
+              if patchelf --print-needed "$f" | grep -qx libonnxruntime.so; then
+                patchelf --replace-needed libonnxruntime.so libonnxruntime_sherpa.so "$f"
+              fi
+            done
+          fi
+          for f in lib*.so; do echo "== $f"; patchelf --print-needed "$f" | grep -i onnx || true; done
+          cd "$WS"
+          # Kotlin-обёртки sherpa-onnx ТОГО ЖЕ релиза (JNI привязан к именам классов)
+          git clone --depth 1 --branch "$SHERPA" https://github.com/k2-fsa/sherpa-onnx.git /tmp/sherpa-src
+          K=/tmp/sherpa-src/sherpa-onnx/kotlin-api
+          [ -f "$K/Tts.kt" ] || { echo "::error::Нет kotlin-api/Tts.kt в $SHERPA"; ls /tmp/sherpa-src/sherpa-onnx | head -40; exit 1; }
+          mkdir -p app/src/main/java/com/k2fsa/sherpa/onnx
+          cp "$K"/*.kt app/src/main/java/com/k2fsa/sherpa/onnx/
+          ls app/src/main/java/com/k2fsa/sherpa/onnx | head -40
+
+          # Голоса: в assets кладём только нужное (модель, токены, голоса, лексиконы, espeak-ng-data)
+          T="$WS/app/src/main/assets/tts"; mkdir -p "$T"
+          base=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
+          get() {  # $1 = папка в assets, $2 = архив без .tar.bz2, $3 = nodata, если espeak-ng-data не нужна
+            [ -s "$T/$1/model.onnx" ] && return 0
+            rm -rf "/tmp/tts-$1"; mkdir -p "/tmp/tts-$1"
+            curl -fL --retry 5 --retry-delay 5 -o "/tmp/tts-$1.tar.bz2" "$base/$2.tar.bz2" || { echo "::warning::Не скачался TTS-пакет $2"; return 0; }
+            tar xf "/tmp/tts-$1.tar.bz2" -C "/tmp/tts-$1"
+            src=$(find "/tmp/tts-$1" -mindepth 1 -maxdepth 1 -type d | head -1)
+            m=$(ls "$src"/model*.onnx "$src"/*.onnx 2>/dev/null | head -1)
+            [ -n "$m" ] || { echo "::warning::В пакете $2 нет .onnx"; return 0; }
+            mkdir -p "$T/$1"
+            cp "$m" "$T/$1/model.onnx"
+            cp "$src/tokens.txt" "$T/$1/"
+            for f in voices.bin lexicon-us-en.txt lexicon-gb-en.txt; do [ -f "$src/$f" ] && cp "$src/$f" "$T/$1/" || true; done
+            if [ "$3" != nodata ]; then cp -r "$src/espeak-ng-data" "$T/$1/"; fi
+            rm -rf "/tmp/tts-$1" "/tmp/tts-$1.tar.bz2"
+          }
+          get kokoro kokoro-int8-multi-lang-v1_0
+          get piper-ru-irina vits-piper-ru_RU-irina-medium
+          get piper-ru-denis vits-piper-ru_RU-denis-medium nodata
+          du -sh "$T"/* || true
+
       # 2. Ключ подписи: постоянный из секретов GitHub; если секретов нет — обычный debug-ключ.
       - name: Prepare keystore
         env:

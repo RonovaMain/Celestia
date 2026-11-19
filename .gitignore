@@ -7,3 +7,8 @@ local.properties
 app/src/main/assets/templates/*
 !app/src/main/assets/templates/.gitkeep
 app/src/main/assets/models/*
+
+# подтягивается в CI (sherpa-onnx): Kotlin-API, нативные библиотеки и вшитые голоса
+app/src/main/java/com/k2fsa/
+app/src/main/jniLibs/
+app/src/main/assets/tts/

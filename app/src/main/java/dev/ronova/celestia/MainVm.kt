@@ -19,6 +19,8 @@ import dev.ronova.celestia.core.engine.Ort
 import dev.ronova.celestia.core.engine.Params
 import dev.ronova.celestia.core.faiss.FaissIndex
 import dev.ronova.celestia.core.pth.PthToOnnx
+import dev.ronova.celestia.core.tts.EmbCatalog
+import dev.ronova.celestia.core.tts.EmbPacks
 import dev.ronova.celestia.core.tts.SystemTts
 import dev.ronova.celestia.core.tts.TtsVoiceInfo
 import dev.ronova.celestia.service.ConvertService
@@ -89,6 +91,9 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     // ---- озвучка (TTS) ----
     var ttsText by mutableStateOf("")
+    var ttsEngine by mutableStateOf(store.getString("tts_engine") ?: "embedded")      // embedded = Kokoro/Piper, system = Android TTS
+    var ttsEmbLang by mutableStateOf(store.getString("tts_emb_lang") ?: "ru")
+    var ttsEmbVoice by mutableStateOf(store.getString("tts_emb_voice") ?: "ru-irina")
     var ttsVoices by mutableStateOf<List<TtsVoiceInfo>>(emptyList()); private set
     var ttsVoicesState by mutableStateOf("idle"); private set        // idle / loading / ok / fail
     var ttsLang by mutableStateOf(store.getString("tts_lang"))
@@ -249,14 +254,14 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Настройки»"; return false }
         JobBus.pending = JobRequest.Convert(
             JobSpec(
-                voice = v, input = inp, minus = if (mixer) minus else null,
-                vocalGain = vocalGain, minusGain = minusGain,
-                params = Params(
-                    pitchShift = pitch, indexRate = if (v.hasIndex) indexRate else 0f, protect = protect,
-                    rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode,
-                    threads = threads, windowSec = windowSec, xnnpack = xnnpack,
-                ),
-                outName = inputName.substringBeforeLast('.') + " · " + v.name,
+            voice = v, input = inp, minus = if (mixer) minus else null,
+            vocalGain = vocalGain, minusGain = minusGain,
+            params = Params(
+                pitchShift = pitch, indexRate = if (v.hasIndex) indexRate else 0f, protect = protect,
+                rmsMixRate = rmsMix, temperature = temperature, f0Mode = f0Mode,
+                threads = threads, windowSec = windowSec, xnnpack = xnnpack,
+            ),
+            outName = inputName.substringBeforeLast('.') + " · " + v.name,
             )
         )
         JobBus.state.value = JobState(running = true, message = "Запуск…")
@@ -290,6 +295,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     // ---------- озвучка ----------
     fun saveTts() {
+        store.put("tts_engine", ttsEngine); store.put("tts_emb_lang", ttsEmbLang); store.put("tts_emb_voice", ttsEmbVoice)
         store.put("tts_lang", ttsLang); store.put("tts_voice", ttsVoiceName)
         store.put("tts_rate", ttsRate); store.put("tts_pitch", ttsPitchSys); store.put("tts_pause", ttsPause)
         store.put("tts_rvc", ttsRvc); store.put("t_pitch", tPitch); store.put("t_index", tIndex)
@@ -314,6 +320,13 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         if (busy()) return false
         val text = ttsText.trim()
         if (text.isEmpty()) { message = "Введите текст для озвучки"; return false }
+        if (ttsEngine == "embedded") {
+            val ev = EmbCatalog.byId(ttsEmbVoice)
+            if (ev == null || !EmbPacks.available(app, ev)) {
+                message = "Этот голос не вшит в сборку. Выберите другой или переключитесь на «Системный»."
+                return false
+            }
+        }
         val label = text.replace(Regex("\\s+"), " ").take(30)
         var rvc: JobSpec? = null
         var outName = "$label · TTS"
@@ -334,7 +347,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
             )
         }
         saveTts()
-        JobBus.pending = JobRequest.Tts(TtsSpec(text, ttsVoiceName, ttsLang, ttsRate, ttsPitchSys, ttsPause, rvc, outName))
+        JobBus.pending = JobRequest.Tts(TtsSpec(text, ttsEngine, ttsEmbVoice, threads, ttsVoiceName, ttsLang, ttsRate, ttsPitchSys, ttsPause, rvc, outName))
         JobBus.state.value = JobState(running = true, message = "Запуск…")
         ConvertService.start(app)
         return true

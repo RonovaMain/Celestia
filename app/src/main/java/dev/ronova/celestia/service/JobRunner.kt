@@ -26,6 +26,9 @@ data class JobSpec(
 /** Озвучка текста: системный TTS -> (выгрузка синтезатора) -> RVC. rvc == null — только озвучка без смены голоса. */
 data class TtsSpec(
     val text: String,
+    val engine: String,            // "embedded" (Kokoro/Piper) или "system"
+    val embVoice: String,
+    val threads: Int,
     val voiceName: String?,
     val lang: String?,
     val rate: Float,
