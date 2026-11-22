@@ -138,7 +138,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun friendly(e: Throwable): String = when (e) {
-        is OutOfMemoryError -> "Не хватило памяти. Закройте другие приложения или уберите .index."
+        is OutOfMemoryError -> tr(R.string.vm_oom)
         else -> (e.message ?: e.toString()).take(400)
     }
 
@@ -150,7 +150,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     /** Все импорты идут через одну точку; если один уже идёт, пользователь это видит, а не получает тишину. */
     private fun launchImport(title: String, block: () -> Unit) {
-        if (importing != null) { message = "Подождите, ещё идёт: $importing"; return }
+        if (importing != null) { message = tr(R.string.vm_wait_import, importing.orEmpty()); return }
         importing = title; importProgress = -1f
         viewModelScope.launch(Dispatchers.IO) {
             try { block() } catch (e: Throwable) { message = friendly(e) }
@@ -161,19 +161,19 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     // ---------- встроенные модели ----------
     fun installModels() {
         if (installing != null) return
-        installing = "Подготавливаю встроенные модели (один раз)…"; installProgress = 0f
+        installing = tr(R.string.vm_preparing_models); installProgress = 0f
         viewModelScope.launch(Dispatchers.IO) {
-            try { store.installBundled { t, p -> installing = "Копирую модель: $t"; installProgress = p } }
-            catch (e: Throwable) { message = "Не удалось установить встроенные модели: ${friendly(e)}" }
+            try { store.installBundled { t, p -> installing = tr(R.string.vm_copying_model, t); installProgress = p } }
+            catch (e: Throwable) { message = tr(R.string.vm_install_fail, friendly(e)) }
             finally { installing = null; refresh() }
         }
     }
 
-    fun importEngine(kind: EngineKind, uri: Uri) = launchImport("Копирую ${kind.title}…") {
+    fun importEngine(kind: EngineKind, uri: Uri) = launchImport(tr(R.string.vm_copying_title, tr(kind.title))) {
         val tmp = File(store.engineDir, kind.file + ".tmp")
         store.copy(uri, tmp)
         try { Ort.open(tmp.absolutePath, 1, false).close() } catch (e: Throwable) {
-            tmp.delete(); throw IllegalStateException("Файл не открывается как ONNX: ${e.message}")
+            tmp.delete(); throw IllegalStateException(tr(R.string.vm_not_onnx, e.message ?: ""))
         }
         tmp.renameTo(store.engineFile(kind))
     }
@@ -193,33 +193,33 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         store.copy(uri, tmp)
         try {
             val idx = FaissIndex.load(tmp)
-            check(idx.dim == 768) { "Индекс на ${idx.dim} измерений: нужен RVC v2 (768)" }
+            check(idx.dim == 768) { tr(R.string.vm_index_dim, idx.dim) }
             tmp.copyTo(File(dir, "voice.index"), overwrite = true)
         } finally { tmp.delete() }
     }
 
     /** .pth -> ONNX (+ по желанию .index) одним действием. */
     fun addVoice() {
-        val pth = newPth ?: run { message = "Сначала выберите файл .pth"; return }
+        val pth = newPth ?: run { message = tr(R.string.vm_pick_pth_first); return }
         val idx = newIndex
         val name = newName.trim().ifEmpty { newPthName.substringBeforeLast('.') }
-        launchImport("Конвертирую «$name» в ONNX…") {
+        launchImport(tr(R.string.vm_converting_voice, name)) {
             val dir = File(store.voicesDir, UUID.randomUUID().toString().take(8))
             PthToOnnx.convert(app, pth, dir, name) { p -> importProgress = p }
             voiceId = dir.name
-            var note = "Голос «$name» добавлен."
+            var note = tr(R.string.vm_voice_added, name)
             if (idx != null) {
-                importProgress = -1f; importing = "Проверяю .index…"
-                note += try { copyIndex(idx, dir); " Index подключён." } catch (e: Throwable) { " Но .index не подошёл: ${friendly(e)}" }
+                importProgress = -1f; importing = tr(R.string.vm_checking_index)
+                note += " " + (try { copyIndex(idx, dir); tr(R.string.vm_index_connected) } catch (e: Throwable) { tr(R.string.vm_index_bad, friendly(e)) })
             }
             clearForm()
             message = note
         }
     }
 
-    fun attachIndex(v: VoiceMeta, uri: Uri) = launchImport("Проверяю .index…") {
+    fun attachIndex(v: VoiceMeta, uri: Uri) = launchImport(tr(R.string.vm_checking_index)) {
         copyIndex(uri, v.dir)
-        message = "Index подключён к «${v.name}»."
+        message = tr(R.string.vm_index_attached_to, v.name)
     }
 
     fun removeIndex(v: VoiceMeta) { File(v.dir, "voice.index").delete(); refresh() }
@@ -233,25 +233,25 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     /** Тяжёлые задачи идут строго по одной: иначе две модели окажутся в памяти одновременно. */
     private fun busy(): Boolean {
         val what = when {
-            JobBus.state.value.running -> "идёт другая задача"
-            installing != null -> "устанавливаются модели"
-            importing != null -> "идёт импорт голоса"
-            exporting != null -> "идёт сохранение файла"
+            JobBus.state.value.running -> tr(R.string.vm_busy_job)
+            installing != null -> tr(R.string.vm_busy_models)
+            importing != null -> tr(R.string.vm_busy_import)
+            exporting != null -> tr(R.string.vm_busy_export)
             else -> return false
         }
-        message = "Подождите: $what"
+        message = tr(R.string.vm_busy, what)
         return true
     }
 
     fun start(): Boolean {
         if (busy()) return false
-        val v = voice ?: run { message = "Выберите голос (вкладка «Голоса»)"; return false }
-        val inp = input ?: run { message = "Выберите аудиофайл"; return false }
-        if (mixer && minus == null) { message = "Выберите минусовку или выключите микшер"; return false }
-        if (installing != null) { message = "Модели ещё устанавливаются, подождите"; return false }
-        if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Настройки»"; return false }
+        val v = voice ?: run { message = tr(R.string.vm_pick_voice); return false }
+        val inp = input ?: run { message = tr(R.string.vm_pick_audio); return false }
+        if (mixer && minus == null) { message = tr(R.string.vm_pick_minus_or_off); return false }
+        if (installing != null) { message = tr(R.string.vm_models_installing); return false }
+        if (engineReady[EngineKind.HUBERT] != true) { message = tr(R.string.vm_no_contentvec); return false }
         val f0k = if (f0Mode == F0Mode.RMVPE) EngineKind.RMVPE else EngineKind.FCPE
-        if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Настройки»"; return false }
+        if (engineReady[f0k] != true) { message = tr(R.string.vm_no_model, tr(f0k.title)); return false }
         JobBus.pending = JobRequest.Convert(
             JobSpec(
             voice = v, input = inp, minus = if (mixer) minus else null,
@@ -264,7 +264,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
             outName = inputName.substringBeforeLast('.') + " · " + v.name,
             )
         )
-        JobBus.state.value = JobState(running = true, message = "Запуск…")
+        JobBus.state.value = JobState(running = true, message = tr(R.string.job_starting))
         ConvertService.start(app)
         return true
     }
@@ -287,7 +287,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         val f = saveTarget ?: return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { app.contentResolver.openOutputStream(uri)!!.use { o -> f.inputStream().use { it.copyTo(o) } } }
-                .onFailure { message = "Не удалось сохранить: ${it.message}" }
+                .onFailure { message = tr(R.string.vm_save_fail, it.message ?: "") }
         }
     }
 
@@ -319,11 +319,11 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     fun startTts(): Boolean {
         if (busy()) return false
         val text = ttsText.trim()
-        if (text.isEmpty()) { message = "Введите текст для озвучки"; return false }
+        if (text.isEmpty()) { message = tr(R.string.vm_tts_enter_text); return false }
         if (ttsEngine == "embedded") {
             val ev = EmbCatalog.byId(ttsEmbVoice)
             if (ev == null || !EmbPacks.available(app, ev)) {
-                message = "Этот голос не вшит в сборку. Выберите другой или переключитесь на «Системный»."
+                message = tr(R.string.vm_tts_voice_not_bundled)
                 return false
             }
         }
@@ -331,10 +331,10 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         var rvc: JobSpec? = null
         var outName = "$label · TTS"
         if (ttsRvc) {
-            val v = voice ?: run { message = "Выберите голос RVC (вкладка «Голоса») или включите «Только озвучка»"; return false }
-            if (engineReady[EngineKind.HUBERT] != true) { message = "Нет модели ContentVec: вкладка «Настройки»"; return false }
+            val v = voice ?: run { message = tr(R.string.vm_tts_pick_rvc); return false }
+            if (engineReady[EngineKind.HUBERT] != true) { message = tr(R.string.vm_no_contentvec); return false }
             val f0k = if (tFcpe) EngineKind.FCPE else EngineKind.RMVPE
-            if (engineReady[f0k] != true) { message = "Нет модели ${f0k.title}: вкладка «Настройки»"; return false }
+            if (engineReady[f0k] != true) { message = tr(R.string.vm_no_model, tr(f0k.title)); return false }
             outName = "$label · ${v.name}"
             rvc = JobSpec(
                 voice = v, input = null, minus = null, vocalGain = 1f, minusGain = 0.8f,
@@ -348,7 +348,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
         }
         saveTts()
         JobBus.pending = JobRequest.Tts(TtsSpec(text, ttsEngine, ttsEmbVoice, threads, ttsVoiceName, ttsLang, ttsRate, ttsPitchSys, ttsPause, rvc, outName))
-        JobBus.state.value = JobState(running = true, message = "Запуск…")
+        JobBus.state.value = JobState(running = true, message = tr(R.string.job_starting))
         ConvertService.start(app)
         return true
     }
@@ -363,11 +363,11 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     fun startSep(): Boolean {
         if (busy()) return false
-        val inp = sepInput ?: run { message = "Выберите аудиофайл"; return false }
-        if (engineReady[sepModel.kind] != true) { message = "Нет модели «${sepModel.kind.title}»: вкладка «Настройки»"; return false }
+        val inp = sepInput ?: run { message = tr(R.string.vm_pick_audio); return false }
+        if (engineReady[sepModel.kind] != true) { message = tr(R.string.vm_no_model, tr(sepModel.kind.title)); return false }
         saveSep()
         JobBus.pending = JobRequest.Separate(SepSpec(inp, sepInputName, sepModel, sepDenoise, sepSmooth, sepLowMem, threads))
-        JobBus.state.value = JobState(running = true, message = "Запуск…")
+        JobBus.state.value = JobState(running = true, message = tr(R.string.job_starting))
         ConvertService.start(app)
         return true
     }
@@ -379,11 +379,11 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
 
     /** Подставляет вокал и минус в экран конвертации; кнопку «Конвертировать» нажимает сам пользователь. */
     fun useStems(s: StemSet) {
-        input = Uri.fromFile(s.vocals); inputName = s.name + " · вокал"
-        minus = Uri.fromFile(s.instrumental); minusName = s.name + " · минус"
+        input = Uri.fromFile(s.vocals); inputName = tr(R.string.stem_vocals_suffix, s.name)
+        minus = Uri.fromFile(s.instrumental); minusName = tr(R.string.stem_minus_suffix, s.name)
         mixer = true
         f0Mode = F0Mode.RMVPE
-        note = "Подставлено из разделения: вокал и минус «${s.name}». Включены микшер и RMVPE (для пения) — проверьте голос и настройки и нажмите «Конвертировать»."
+        note = tr(R.string.vm_note_stems, s.name)
         tab = 1
     }
 
@@ -402,7 +402,7 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     private fun safeName(s: String) = s.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").trim().take(80).ifBlank { "track" }
 
     fun exportFileName(plan: ExportPlan): String =
-        safeName(plan.stem.name) + (if (plan.part == StemPart.VOCALS) " - вокал." else " - минус.") + plan.fmt.ext
+        safeName(plan.stem.name) + (" - " + tr(if (plan.part == StemPart.VOCALS) R.string.part_vocals else R.string.part_minus) + ".") + plan.fmt.ext
 
     private fun encodeTo(src: File, fmt: ExportFmt, out: OutputStream) {
         val tmp = File(store.tmpDir, "export." + fmt.ext).also { it.delete() }
@@ -416,13 +416,13 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     fun exportToUri(uri: Uri) {
         val plan = exportPlan ?: return
         if (busy()) return
-        exporting = "Кодирую ${plan.fmt.ext.uppercase()}…"; exportProgress = 0f
+        exporting = tr(R.string.vm_export_encoding, plan.fmt.ext.uppercase()); exportProgress = 0f
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val src = if (plan.part == StemPart.VOCALS) plan.stem.vocals else plan.stem.instrumental
                 app.contentResolver.openOutputStream(uri)!!.use { encodeTo(src, plan.fmt, it) }
-                message = "Сохранено."
-            } catch (e: Throwable) { message = "Не удалось сохранить: ${friendly(e)}" }
+                message = tr(R.string.vm_saved)
+            } catch (e: Throwable) { message = tr(R.string.vm_save_fail, friendly(e)) }
             finally { exporting = null }
         }
     }
@@ -431,19 +431,19 @@ class MainVm(private val app: Application) : AndroidViewModel(app) {
     fun exportBothToTree(tree: Uri) {
         val plan = exportPlan ?: return
         if (busy()) return
-        exporting = "Кодирую ${plan.fmt.ext.uppercase()}…"; exportProgress = 0f
+        exporting = tr(R.string.vm_export_encoding, plan.fmt.ext.uppercase()); exportProgress = 0f
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
                 val base = safeName(plan.stem.name)
-                for ((label, src) in listOf("вокал" to plan.stem.vocals, "минус" to plan.stem.instrumental)) {
-                    exporting = "Кодирую $label (${plan.fmt.ext.uppercase()})…"; exportProgress = 0f
+                for ((label, src) in listOf(tr(R.string.part_vocals) to plan.stem.vocals, tr(R.string.part_minus) to plan.stem.instrumental)) {
+                    exporting = tr(R.string.vm_export_part, label, plan.fmt.ext.uppercase()); exportProgress = 0f
                     val doc = DocumentsContract.createDocument(app.contentResolver, parent, plan.fmt.mime, "$base - $label.${plan.fmt.ext}")
-                        ?: error("Не удалось создать файл в выбранной папке")
+                        ?: error(tr(R.string.vm_no_create_file))
                     app.contentResolver.openOutputStream(doc)!!.use { encodeTo(src, plan.fmt, it) }
                 }
-                message = "Вокал и минус сохранены в выбранную папку."
-            } catch (e: Throwable) { message = "Не удалось сохранить: ${friendly(e)}" }
+                message = tr(R.string.vm_both_saved)
+            } catch (e: Throwable) { message = tr(R.string.vm_save_fail, friendly(e)) }
             finally { exporting = null }
         }
     }

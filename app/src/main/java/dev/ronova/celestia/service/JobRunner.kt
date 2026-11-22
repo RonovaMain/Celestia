@@ -1,5 +1,8 @@
 package dev.ronova.celestia.service
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import android.net.Uri
 import dev.ronova.celestia.Store
@@ -50,9 +53,9 @@ data class SepSpec(
 )
 
 sealed class JobRequest(val title: String) {
-    class Convert(val spec: JobSpec) : JobRequest("Конвертация голоса")
-    class Tts(val spec: TtsSpec) : JobRequest("Озвучка текста")
-    class Separate(val spec: SepSpec) : JobRequest("Разделение трека")
+    class Convert(val spec: JobSpec) : JobRequest(tr(R.string.job_convert_title))
+    class Tts(val spec: TtsSpec) : JobRequest(tr(R.string.tts_title))
+    class Separate(val spec: SepSpec) : JobRequest(tr(R.string.job_sep_title))
 }
 
 data class JobState(
@@ -91,8 +94,8 @@ object JobRunner {
 
     fun run(ctx: Context, store: Store, spec: JobSpec, report: (Float, String) -> Unit): File {
         val cancelled = { JobBus.cancel }
-        report(0.01f, "Декодирую аудио…")
-        val pcm = AudioIO.decode(ctx, spec.input ?: error("Не выбран аудиофайл"), cancelled)
+        report(0.01f, tr(R.string.job_decoding_audio))
+        val pcm = AudioIO.decode(ctx, spec.input ?: error(tr(R.string.err_no_audio_selected)), cancelled)
         val x = AudioIO.resample(pcm.mono(), pcm.sampleRate, 16000)
         return convert(ctx, store, x, spec, 0.04f, 0.94f, report)
     }
@@ -102,7 +105,7 @@ object JobRunner {
         val p = spec.params
         val sr = spec.voice.sr
         val cancelled = { JobBus.cancel }
-        require(x.size >= 3200) { "Аудио слишком короткое" }
+        require(x.size >= 3200) { tr(R.string.err_audio_short) }
 
         val win = roundTo(p.windowSec.coerceIn(4f, 8f))
         val ov = roundTo(p.overlapSec.coerceIn(0.25f, 2f)).coerceAtMost(win / 2)
@@ -125,7 +128,7 @@ object JobRunner {
                     written += len
                 }
                 for ((i, r) in chunks.withIndex()) {
-                    check(!cancelled()) { "Отменено" }
+                    check(!cancelled()) { tr(R.string.job_cancelled) }
                     val len = r.last - r.first + 1
                     val padded = (len + STEP - 1) / STEP * STEP
                     val chunk = FloatArray(padded)
@@ -154,7 +157,7 @@ object JobRunner {
                     val eta = if (done > 0.02f) (el / done - el).toInt() else -1
                     report(
                         p0 + (p1 - p0) * done,
-                        "Фрагмент ${i + 1}/${chunks.size}" + if (eta >= 0) " · осталось ~%d:%02d".format(eta / 60, eta % 60) else "",
+                        if (eta >= 0) tr(R.string.job_chunk_eta, i + 1, chunks.size, eta / 60, eta % 60) else tr(R.string.job_chunk, i + 1, chunks.size),
                     )
                 }
             }
@@ -167,14 +170,14 @@ object JobRunner {
         while (dest.exists()) { dest = File(store.outDir, "$name (${n++}).wav") }
 
         if (spec.minus != null) {
-            report(p1 + 0.02f, "Микширую с минусом…")
+            report(p1 + 0.02f, tr(R.string.job_mixing))
             val minus = AudioIO.decode(ctx, spec.minus, cancelled)
             AudioIO.mixToWav(raw, minus, sr, spec.vocalGain, spec.minusGain, dest)
         } else {
             AudioIO.rawToWav(raw, sr, dest)
         }
         raw.delete()
-        report(1f, "Готово")
+        report(1f, tr(R.string.job_done))
         return dest
     }
 }

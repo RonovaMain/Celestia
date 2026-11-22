@@ -1,5 +1,9 @@
 package dev.ronova.celestia.core.tts
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+import dev.ronova.celestia.Lang
+
 import android.content.Context
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -42,7 +46,7 @@ class SystemTts(ctx: Context) : AutoCloseable {
     }
 
     fun select(voiceName: String?, lang: String?, rate: Float, pitch: Float) {
-        val t = tts ?: error("Синтезатор не запущен")
+        val t = tts ?: error(tr(R.string.err_synth_not_running))
         var chosen = false
         if (!voiceName.isNullOrEmpty()) {
             val v = t.voices?.firstOrNull { it.name == voiceName }
@@ -52,7 +56,7 @@ class SystemTts(ctx: Context) : AutoCloseable {
             val loc = if (!lang.isNullOrEmpty()) Locale.forLanguageTag(lang) else Locale.getDefault()
             val r = t.setLanguage(loc)
             check(r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED) {
-                "В системном синтезаторе нет офлайн-голоса для языка «${loc.displayLanguage}». Установите голос в настройках синтеза речи."
+                tr(R.string.err_sys_no_voice, loc.getDisplayLanguage(Lang.locale()))
             }
         }
         t.setSpeechRate(rate)
@@ -60,27 +64,27 @@ class SystemTts(ctx: Context) : AutoCloseable {
     }
 
     fun synth(text: String, out: File, cancelled: () -> Boolean) {
-        val t = tts ?: error("Синтезатор не запущен")
+        val t = tts ?: error(tr(R.string.err_synth_not_running))
         val id = "u" + System.nanoTime()
         val latch = CountDownLatch(1)
         val err = AtomicReference<String?>(null)
         t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) { if (utteranceId == id) latch.countDown() }
-            override fun onError(utteranceId: String?) { if (utteranceId == id) { err.set("ошибка синтеза"); latch.countDown() } }
-            override fun onError(utteranceId: String?, errorCode: Int) { if (utteranceId == id) { err.set("код ошибки $errorCode"); latch.countDown() } }
+            override fun onError(utteranceId: String?) { if (utteranceId == id) { err.set(tr(R.string.synth_err_plain)); latch.countDown() } }
+            override fun onError(utteranceId: String?, errorCode: Int) { if (utteranceId == id) { err.set(tr(R.string.synth_err_code, errorCode)); latch.countDown() } }
         })
         out.delete()
         val r = t.synthesizeToFile(text, Bundle(), out, id)
-        check(r == TextToSpeech.SUCCESS) { "Синтезатор отклонил текст" }
+        check(r == TextToSpeech.SUCCESS) { tr(R.string.err_synth_rejected) }
         var waited = 0
         while (!latch.await(250, TimeUnit.MILLISECONDS)) {
-            if (cancelled()) { t.stop(); error("Отменено") }
+            if (cancelled()) { t.stop(); error(tr(R.string.job_cancelled)) }
             waited += 250
-            if (waited > 120_000) { t.stop(); error("Синтезатор не отвечает") }
+            if (waited > 120_000) { t.stop(); error(tr(R.string.err_synth_timeout)) }
         }
-        err.get()?.let { error("Синтезатор: $it") }
-        check(out.exists() && out.length() > 44) { "Синтезатор вернул пустой файл" }
+        err.get()?.let { error(tr(R.string.err_synth_generic, it)) }
+        check(out.exists() && out.length() > 44) { tr(R.string.err_synth_empty) }
     }
 
     override fun close() {

@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.audio
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
@@ -42,7 +45,7 @@ object AudioIO {
         for (i in 0 until ex.trackCount) {
             if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { track = i; break }
         }
-        require(track >= 0) { "В файле нет аудиодорожки" }
+        require(track >= 0) { tr(R.string.err_no_audio_track) }
         ex.selectTrack(track)
         val fmt = ex.getTrackFormat(track)
         val codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
@@ -59,7 +62,7 @@ object AudioIO {
         var floatEnc = false
         try {
             while (!outDone) {
-                check(!isCancelled()) { "Отменено" }
+                check(!isCancelled()) { tr(R.string.job_cancelled) }
                 if (!inDone) {
                     val ib = codec.dequeueInputBuffer(10_000)
                     if (ib >= 0) {

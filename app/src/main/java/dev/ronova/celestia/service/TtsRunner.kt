@@ -1,5 +1,8 @@
 package dev.ronova.celestia.service
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import dev.ronova.celestia.Store
 import dev.ronova.celestia.core.audio.AudioIO
@@ -20,37 +23,37 @@ object TtsRunner {
     fun run(ctx: Context, store: Store, spec: TtsSpec, report: (Float, String) -> Unit): File {
         val cancelled = { JobBus.cancel }
         val chunks = TextSplit.split(spec.text)
-        require(chunks.isNotEmpty()) { "В тексте нет слов для озвучки" }
+        require(chunks.isNotEmpty()) { tr(R.string.err_no_words) }
 
         val parts = ArrayList<FloatArray>()
         var sr = 0
         if (spec.engine == "embedded") {
-            val v = EmbCatalog.byId(spec.embVoice) ?: error("Голос не найден")
-            report(0.02f, "Загружаю голос «${v.title}»…")
+            val v = EmbCatalog.byId(spec.embVoice) ?: error(tr(R.string.err_voice_not_found))
+            report(0.02f, tr(R.string.job_loading_voice, v.title))
             EmbeddedTts(ctx).use { e ->
                 try {
                     e.open(v, spec.threads)
                 } catch (t: LinkageError) {
-                    throw IllegalStateException("Не удалось загрузить библиотеку sherpa-onnx: ${t.message}")
+                    throw IllegalStateException(tr(R.string.err_sherpa_lib, t.message ?: ""))
                 }
                 sr = e.sampleRate
                 for ((i, c) in chunks.withIndex()) {
-                    check(!cancelled()) { "Отменено" }
-                    report(0.05f + 0.35f * i / chunks.size, "Синтез речи: ${i + 1}/${chunks.size}")
+                    check(!cancelled()) { tr(R.string.job_cancelled) }
+                    report(0.05f + 0.35f * i / chunks.size, tr(R.string.job_tts_progress, i + 1, chunks.size))
                     parts.add(e.synth(c, v.sid, spec.rate))
                 }
             }   // модель синтеза выгружена здесь
         } else {
-            report(0.02f, "Запускаю системный синтезатор…")
+            report(0.02f, tr(R.string.job_start_sys_tts))
             SystemTts(ctx).use { tts ->
                 check(tts.open()) {
-                    "Системный синтезатор речи не запустился. Выберите встроенный синтезатор Kokoro/Piper или установите офлайн-голоса в настройках телефона."
+                    tr(R.string.err_sys_tts_fail)
                 }
                 tts.select(spec.voiceName, spec.lang, spec.rate, spec.pitch)
                 val tmp = File(store.tmpDir, "tts_part.wav")
                 for ((i, c) in chunks.withIndex()) {
-                    check(!cancelled()) { "Отменено" }
-                    report(0.03f + 0.37f * i / chunks.size, "Синтез речи: ${i + 1}/${chunks.size}")
+                    check(!cancelled()) { tr(R.string.job_cancelled) }
+                    report(0.03f + 0.37f * i / chunks.size, tr(R.string.job_tts_progress, i + 1, chunks.size))
                     tts.synth(c, tmp, cancelled)
                     val pcm = Wav.read(tmp)
                     var m = pcm.mono()
@@ -60,7 +63,7 @@ object TtsRunner {
                 tmp.delete()
             }   // системный синтезатор закрыт
         }
-        require(parts.isNotEmpty() && sr > 0) { "Синтезатор не вернул звук" }
+        require(parts.isNotEmpty() && sr > 0) { tr(R.string.err_synth_no_audio) }
 
         val pause = FloatArray(sr * spec.pauseMs.coerceIn(0, 3000) / 1000)
         val total = parts.sumOf { it.size } + pause.size * (parts.size - 1)
@@ -76,16 +79,16 @@ object TtsRunner {
         if (peak > 1e-4f) { val g = 0.9f / peak; for (i in speech.indices) speech[i] *= g }
 
         if (spec.rvc == null) {
-            report(0.95f, "Сохраняю…")
+            report(0.95f, tr(R.string.job_saving))
             val dest = uniqueFile(store.outDir, spec.outName)
             Wav.writeMono16(dest, speech, sr)
-            report(1f, "Готово")
+            report(1f, tr(R.string.job_done))
             return dest
         }
 
         val x = AudioIO.resample(speech, sr, 16000)
         System.gc()
-        report(0.42f, "Синтезатор выгружен. Загружаю RVC…")
+        report(0.42f, tr(R.string.job_synth_unloaded))
         return JobRunner.convert(ctx, store, x, spec.rvc, 0.45f, 0.96f, report)
     }
 

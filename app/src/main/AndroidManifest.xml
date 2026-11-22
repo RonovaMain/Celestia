@@ -15,7 +15,9 @@
     </queries>
 
     <application
+        android:name=".CelestiaApp"
         android:allowBackup="false"
+        android:localeConfig="@xml/locales_config"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

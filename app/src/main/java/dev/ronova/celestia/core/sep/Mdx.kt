@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.sep
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
@@ -128,7 +131,7 @@ class MdxEngine(
     init {
         val sh = (session.inputInfo.values.first().info as TensorInfo).shape
         require(sh.size == 4 && sh[1] == 4L && sh[2] == Stft.DIM_F.toLong() && sh[3] == Stft.DIM_T.toLong()) {
-            "Это не MDX-Net модель формата 4×3072×256 (форма входа: ${sh.toList()})"
+            tr(R.string.err_not_mdx, sh.toList().toString())
         }
     }
 

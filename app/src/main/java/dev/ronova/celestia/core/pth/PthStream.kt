@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.pth
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import android.net.Uri
 import java.io.File
@@ -125,7 +128,7 @@ private class PickleVM(private val b: ByteArray) {
                 0x81 -> { val args = pop() as List<Any?>; val f = pop(); stack.add(reduce(f, args)) }
                 'b'.code -> pop()                             // BUILD: состояние объекта нам не нужно
                 'Q'.code -> stack.add(persistent(pop() as List<Any?>))
-                else -> error("Неподдерживаемый опкод pickle 0x${op.toString(16)} (смещение ${p - 1})")
+                else -> error("Unsupported pickle opcode 0x${op.toString(16)} (offset ${p - 1})")
             }
         }
     }
@@ -163,7 +166,7 @@ private class PickleVM(private val b: ByteArray) {
 object PthStream {
     @Suppress("UNCHECKED_CAST")
     fun parseHeader(pkl: ByteArray): PthHeader {
-        val root = PickleVM(pkl).run() as? Map<Any?, Any?> ?: error("data.pkl: корень не словарь")
+        val root = PickleVM(pkl).run() as? Map<Any?, Any?> ?: error("data.pkl: root is not a dict")
         val weights = (root["weight"] ?: root["model"] ?: root) as Map<Any?, Any?>
         val tensors = LinkedHashMap<String, TensorRef>()
         for ((k, v) in weights) if (k is String && v is TensorRef) tensors[k] = v
@@ -179,8 +182,8 @@ object PthStream {
     /** Быстрая проверка, что это torch-zip и он читается: data.pkl открывается и начинается с PROTO (0x80). */
     private fun checkTorchZip(zf: ZipFile) {
         val e = zf.entries().asSequence().firstOrNull { !it.isDirectory && (it.name.endsWith("/data.pkl") || it.name == "data.pkl") }
-            ?: error("в архиве нет data.pkl")
-        zf.getInputStream(e).use { check(it.read() == 0x80) { "data.pkl не читается" } }
+            ?: error("the archive has no data.pkl")
+        zf.getInputStream(e).use { check(it.read() == 0x80) { "data.pkl is unreadable" } }
     }
 
     /**
@@ -203,10 +206,10 @@ object PthStream {
 
         val f = File(ctx.cacheDir, "pick.pth")
         try {
-            val src = ctx.contentResolver.openInputStream(uri) ?: error("Не удалось открыть файл")
+            val src = ctx.contentResolver.openInputStream(uri) ?: error(tr(R.string.err_open_file))
             src.use { i -> f.outputStream().use { o -> i.copyTo(o, 1 shl 16) } }
             val zf = try { ZipFile(f) } catch (e: java.util.zip.ZipException) {
-                error("Это не .pth в формате torch.save (zip): ${e.message}; размер файла ${f.length()} байт")
+                error(tr(R.string.err_not_pth, e.message ?: "", f.length()))
             }
             return zf.use(block)
         } finally {
@@ -232,9 +235,9 @@ object PthStream {
             if (n.endsWith("/data.pkl") || n == "data.pkl") pklEntry = e
             else if (n.contains("/data/") || n.startsWith("data/")) storages[n.substringAfterLast('/')] = e
         }
-        val pe = pklEntry ?: error("Это не .pth в формате torch.save: в архиве нет data.pkl")
+        val pe = pklEntry ?: error(tr(R.string.err_not_pth2))
         val pkl = zf.getInputStream(pe).use { it.readBytes() }
-        check(pkl.isNotEmpty()) { "data.pkl пустой (${pe.name}, size=${pe.size})" }
+        check(pkl.isNotEmpty()) { "data.pkl is empty (${pe.name}, size=${pe.size})" }
         val header = parseHeader(pkl)
         val keys = chooseKeys(header)
 
@@ -246,7 +249,7 @@ object PthStream {
         var done = 0
         val total = keys.size.coerceAtLeast(1)
         for ((sk, list) in byStorage) {
-            val entry = storages[sk] ?: error("В архиве нет хранилища $sk")
+            val entry = storages[sk] ?: error("Storage $sk not found in the archive")
             val bytes = zf.getInputStream(entry).use { it.readBytes() }
             for ((k, t) in list) {
                 sink(k, extract(bytes, t))
@@ -257,7 +260,7 @@ object PthStream {
     }
 
     private fun extract(raw: ByteArray, t: TensorRef): FloatArray {
-        check(t.isContiguous()) { "Нестандартные strides у тензора — не поддержано" }
+        check(t.isContiguous()) { "Non-standard tensor strides are not supported" }
         val n = t.numel.toInt()
         val off = t.offset.toInt()
         val bb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN)
@@ -267,7 +270,7 @@ object PthStream {
             DType.F16 -> for (i in 0 until n) out[i] = halfToFloat(bb.getShort((off + i) * 2).toInt() and 0xFFFF)
             DType.BF16 -> for (i in 0 until n) out[i] = Float.fromBits(bb.getShort((off + i) * 2).toInt() shl 16)
             DType.F64 -> for (i in 0 until n) out[i] = bb.getDouble((off + i) * 8).toFloat()
-            DType.OTHER -> error("Неподдерживаемый тип данных тензора")
+            DType.OTHER -> error("Unsupported tensor data type")
         }
         return out
     }

@@ -1,5 +1,8 @@
 package dev.ronova.celestia.service
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -33,15 +36,15 @@ class ConvertService : Service() {
         title = req.title
 
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CH, "Задачи Celestia", NotificationManager.IMPORTANCE_LOW))
-        ServiceCompat.startForeground(this, ID, notif(0, "Запуск…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        nm.createNotificationChannel(NotificationChannel(CH, tr(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW))
+        ServiceCompat.startForeground(this, ID, notif(0, tr(R.string.job_starting)), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         val store = Store(applicationContext)
 
         wake = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "celestia:convert").apply { acquire(3 * 60 * 60 * 1000L) }
 
         JobBus.cancel = false
-        JobBus.state.value = JobState(running = true, message = "Запуск…", kind = req.title)
+        JobBus.state.value = JobState(running = true, message = tr(R.string.job_starting), kind = req.title)
         scope.launch {
             var last = -1
             try {
@@ -56,14 +59,14 @@ class ConvertService : Service() {
                     is JobRequest.Tts -> TtsRunner.run(ctx, store, req.spec, report)
                     is JobRequest.Separate -> SepRunner.run(ctx, store, req.spec, report)
                 }
-                JobBus.state.value = JobState(progress = 1f, message = "Готово", result = file, kind = req.title)
+                JobBus.state.value = JobState(progress = 1f, message = tr(R.string.job_done), result = file, kind = req.title)
                 nm.notify(ID + 1, NotificationCompat.Builder(this@ConvertService, CH)
-                    .setSmallIcon(android.R.drawable.stat_sys_upload_done).setContentTitle(req.title + ": готово")
+                    .setSmallIcon(android.R.drawable.stat_sys_upload_done).setContentTitle(tr(R.string.notif_done, req.title))
                     .setContentText(file.name).setAutoCancel(true).setContentIntent(openApp()).build())
             } catch (e: Throwable) {
                 val msg = when {
-                    JobBus.cancel -> "Отменено"
-                    e is OutOfMemoryError -> "Не хватило памяти. Закройте другие приложения; для разделения включите «Экономию памяти», для RVC уберите .index или уменьшите фрагмент"
+                    JobBus.cancel -> tr(R.string.job_cancelled)
+                    e is OutOfMemoryError -> tr(R.string.job_oom)
                     else -> e.message ?: e.toString()
                 }
                 JobBus.state.value = JobState(error = msg, kind = req.title)
@@ -89,7 +92,7 @@ class ConvertService : Service() {
             .setProgress(100, pct, false)
             .setOngoing(true).setOnlyAlertOnce(true)
             .setContentIntent(openApp())
-            .addAction(0, "Отмена", cancel)
+            .addAction(0, tr(R.string.cancel), cancel)
             .build()
     }
 

@@ -1,5 +1,8 @@
 package dev.ronova.celestia.service
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import dev.ronova.celestia.Store
 import dev.ronova.celestia.core.audio.AudioIO
@@ -45,13 +48,13 @@ object SepRunner {
     fun run(ctx: Context, store: Store, spec: SepSpec, report: (Float, String) -> Unit): File {
         val cancelled = { JobBus.cancel }
         val modelFile = store.engineFile(spec.model.kind)
-        require(modelFile.exists()) { "Нет модели «${spec.model.kind.title}»: вкладка «Настройки»" }
+        require(modelFile.exists()) { tr(R.string.vm_no_model, tr(spec.model.kind.title)) }
 
-        report(0.01f, "Декодирую трек…")
+        report(0.01f, tr(R.string.job_decode_track))
         val (left, right) = load(ctx, spec)
         val total = left.size
-        require(total >= SR) { "Трек слишком короткий" }
-        check(!cancelled()) { "Отменено" }
+        require(total >= SR) { tr(R.string.err_track_short) }
+        check(!cancelled()) { tr(R.string.job_cancelled) }
 
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val safe = spec.name.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").trim().take(60).ifBlank { "track" }
@@ -84,10 +87,10 @@ object SepRunner {
             val tailR = FloatArray(ovl)
             val t0 = System.nanoTime()
 
-            report(0.06f, "Загружаю модель…")
+            report(0.06f, tr(R.string.job_loading_model))
             MdxEngine(modelFile.absolutePath, spec.threads, spec.lowMem, spec.model.compensate, spec.denoise).use { eng ->
                 for (i in 0 until n) {
-                    check(!cancelled()) { "Отменено" }
+                    check(!cancelled()) { tr(R.string.job_cancelled) }
                     val start = i * step
                     val s0 = start - trim
                     java.util.Arrays.fill(cl, 0f)
@@ -122,16 +125,16 @@ object SepRunner {
                     val done = (pos.toFloat() / total).coerceIn(0f, 1f)
                     val el = (System.nanoTime() - t0) / 1e9
                     val eta = if (i >= 1) (el / (i + 1) * (n - i - 1)).toInt() else -1
-                    report(0.08f + 0.9f * done, "Кусок ${i + 1}/$n" + if (eta >= 0) " · осталось ~%d:%02d".format(eta / 60, eta % 60) else "")
+                    report(0.08f + 0.9f * done, if (eta >= 0) tr(R.string.sep_chunk_eta, i + 1, n, eta / 60, eta % 60) else tr(R.string.sep_chunk, i + 1, n))
                 }
             }
-            check(pos == total) { "Внутренняя ошибка: записано $pos из $total отсчётов" }
+            check(pos == total) { "Internal error: wrote $pos of $total samples" }
             voc.flush(); ins.flush()
             vOut.close(); iOut.close()
 
             val meta = JSONObject()
                 .put("name", spec.name.substringBeforeLast('.').ifBlank { safe })
-                .put("model", spec.model.title)
+                .put("model", tr(spec.model.title).substringBefore(" ·"))
                 .put("created", System.currentTimeMillis())
                 .put("seconds", total / SR)
             File(tmpDir, "meta.json").writeText(meta.toString())
@@ -139,9 +142,9 @@ object SepRunner {
             var dest = File(store.stemsDir, safe.substringBeforeLast('.').ifBlank { safe })
             var c = 1
             while (dest.exists()) dest = File(store.stemsDir, safe.substringBeforeLast('.').ifBlank { safe } + " (${c++})")
-            check(tmpDir.renameTo(dest)) { "Не удалось сохранить результат" }
+            check(tmpDir.renameTo(dest)) { tr(R.string.err_save_result) }
             finalDir = dest
-            report(1f, "Готово")
+            report(1f, tr(R.string.job_done))
             return dest
         } finally {
             if (finalDir == null) tmpDir.deleteRecursively()

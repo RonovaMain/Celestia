@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.engine
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
@@ -25,9 +28,9 @@ class ContentEncoder(path: String, threads: Int, xnn: Boolean) : AutoCloseable {
                 val o = res.get(0) as OnnxTensor
                 val sh = Ort.shapeOf(o)
                 val v = Ort.floats(o)
-                check(sh.size == 3) { "Неожиданная форма выхода энкодера: ${sh.toList()}" }
+                check(sh.size == 3) { "Unexpected encoder output shape: ${sh.toList()}" }
                 if (sh[2] == 768L) return v to sh[1].toInt()
-                check(sh[1] == 768L) { "Энкодер выдаёт ${sh.toList()}, нужны 768 каналов (ContentVec v2)" }
+                check(sh[1] == 768L) { dev.ronova.celestia.tr(R.string.err_encoder_dim, sh.toList().toString()) }
                 val f = sh[2].toInt()
                 val tr = FloatArray(v.size)
                 for (c in 0 until 768) for (i in 0 until f) tr[i * 768 + c] = v[c * f + i]

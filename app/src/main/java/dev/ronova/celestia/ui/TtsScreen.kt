@@ -1,5 +1,9 @@
 package dev.ronova.celestia.ui
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+import dev.ronova.celestia.Lang
+
 import android.content.Intent
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
@@ -33,10 +37,10 @@ import dev.ronova.celestia.core.tts.EmbPacks
 import dev.ronova.celestia.service.JobBus
 import java.util.Locale
 
-private val FALLBACK_LANGS = listOf("ru", "en", "uk", "de", "fr", "es", "it", "pl", "tr", "pt", "ja", "ko", "zh")
+private val FALLBACK_LANGS = listOf("ru", "en", "uk", "be", "de", "fr", "es", "it", "pl", "tr", "pt", "ja", "ko", "zh")
 
 private fun langTitle(tag: String): String =
-    Locale.forLanguageTag(tag).getDisplayLanguage(Locale("ru")).replaceFirstChar { it.uppercase() }.ifBlank { tag }
+    Locale.forLanguageTag(tag).getDisplayLanguage(Lang.locale()).replaceFirstChar { it.uppercase() }.ifBlank { tag }
 
 @Composable
 fun TtsScreen(vm: MainVm) {
@@ -49,84 +53,80 @@ fun TtsScreen(vm: MainVm) {
     fun open(i: Intent) { runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
 
     Page {
-        Text("Озвучка текста", style = MaterialTheme.typography.headlineSmall)
+        Text(tr(R.string.tts_title), style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Напишите текст — он будет озвучен синтезатором речи, а затем голос заменится на выбранный голос RVC. " +
-                "Модели работают строго по очереди: сначала синтезатор (потом он выгружается), затем RVC — одновременно в памяти их нет.",
+            tr(R.string.tts_intro),
             style = MaterialTheme.typography.bodySmall,
         )
 
         OutlinedTextField(
             value = vm.ttsText, onValueChange = { vm.ttsText = it },
-            label = { Text("Текст для озвучки") },
+            label = { Text(tr(R.string.tts_text_label)) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp), minLines = 5,
         )
-        Text("Символов: ${vm.ttsText.length}", style = MaterialTheme.typography.bodySmall)
+        Text(tr(R.string.tts_chars, vm.ttsText.length), style = MaterialTheme.typography.bodySmall)
 
         // ── синтезатор ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("1. Синтезатор речи (основа)", style = MaterialTheme.typography.titleMedium)
+                Text(tr(R.string.tts_step1), style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(vm.ttsEngine == "embedded", { vm.ttsEngine = "embedded"; vm.saveTts() }, label = { Text("Встроенный") })
-                    FilterChip(vm.ttsEngine == "system", { vm.ttsEngine = "system"; vm.saveTts() }, label = { Text("Системный") })
+                    FilterChip(vm.ttsEngine == "embedded", { vm.ttsEngine = "embedded"; vm.saveTts() }, label = { Text(tr(R.string.tts_embedded)) })
+                    FilterChip(vm.ttsEngine == "system", { vm.ttsEngine = "system"; vm.saveTts() }, label = { Text(tr(R.string.tts_system)) })
                 }
                 if (vm.ttsEngine == "embedded") {
                     Text(
-                        "Работает без интернета и без системных голосов. Kokoro-82M: английский, испанский, французский, итальянский, " +
-                            "португальский, хинди. Русский Kokoro не умеет — для него встроен Piper. Тембр потом заменит RVC, " +
-                            "важны лишь внятность и интонация.",
+                        tr(R.string.tts_emb_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     val lang = vm.ttsEmbLang
-                    Picker("Язык", EmbCatalog.langs.firstOrNull { it.first == lang }?.second ?: lang, EmbCatalog.langs) {
+                    Picker(tr(R.string.lang_label), EmbCatalog.langs.firstOrNull { it.first == lang }?.second ?: lang, EmbCatalog.langs) {
                         vm.ttsEmbLang = it
                         vm.ttsEmbVoice = EmbCatalog.voices.first { v -> v.lang == it }.id
                         vm.saveTts()
                     }
                     val vs = EmbCatalog.voices.filter { it.lang == lang }
-                    Picker("Голос", vs.firstOrNull { it.id == vm.ttsEmbVoice }?.title ?: "—", vs.map { it.id to it.title }) {
+                    Picker(tr(R.string.voice_label), vs.firstOrNull { it.id == vm.ttsEmbVoice }?.title ?: "—", vs.map { it.id to it.title }) {
                         vm.ttsEmbVoice = it; vm.saveTts()
                     }
                     val ev = EmbCatalog.byId(vm.ttsEmbVoice)
                     val present = remember(vm.ttsEmbVoice) { ev != null && EmbPacks.available(ctx, ev) }
                     if (!present) {
-                        Text("Этот голос не вшит в сборку (смотрите шаг sherpa-onnx в логе CI).", color = MaterialTheme.colorScheme.error)
+                        Text(tr(R.string.tts_voice_missing), color = MaterialTheme.colorScheme.error)
                     }
-                    Labeled("Скорость речи", String.format(Locale.US, "%.2f×", vm.ttsRate), vm.ttsRate, 0.5f..2f) { vm.ttsRate = it; vm.saveTts() }
+                    Labeled(tr(R.string.tts_rate), String.format(Locale.US, "%.2f×", vm.ttsRate), vm.ttsRate, 0.5f..2f) { vm.ttsRate = it; vm.saveTts() }
                 } else {
                     Text(
-                        "Используются офлайн-голоса, установленные в системе (Google, Samsung и т. д.). На китайских прошивках " +
-                            "их часто нет — тогда выберите «Встроенный».",
+                        tr(R.string.tts_sys_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     when (vm.ttsVoicesState) {
-                        "loading" -> Text("Ищу голоса…")
-                        "fail" -> Text("Системный синтезатор не отвечает. Проверьте настройки синтеза речи.", color = MaterialTheme.colorScheme.error)
+                        "loading" -> Text(tr(R.string.tts_searching))
+                        "fail" -> Text(tr(R.string.tts_sys_fail), color = MaterialTheme.colorScheme.error)
                         else -> if (vm.ttsVoices.isEmpty()) Text(
-                            "Офлайн-голоса не найдены. Установите голос в настройках синтеза речи и нажмите «Обновить», либо выберите «Встроенный».",
+                            tr(R.string.tts_no_voices),
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
                     val langs = vm.ttsVoices.map { it.lang }.distinct().ifEmpty { FALLBACK_LANGS }
                     val lang = vm.ttsLang ?: "ru"
-                    Picker("Язык", langTitle(lang), langs.map { it to langTitle(it) }) { vm.ttsLang = it; vm.ttsVoiceName = null; vm.saveTts() }
+                    Picker(tr(R.string.lang_label), langTitle(lang), langs.map { it to langTitle(it) }) { vm.ttsLang = it; vm.ttsVoiceName = null; vm.saveTts() }
                     val inLang = vm.ttsVoices.filter { it.lang == lang }
-                    val cur = inLang.firstOrNull { it.name == vm.ttsVoiceName }?.title ?: "по умолчанию"
-                    Picker("Голос", cur, listOf("" to "По умолчанию для языка") + inLang.map { it.name to it.title }) {
+                    val cur = inLang.firstOrNull { it.name == vm.ttsVoiceName }?.title ?: tr(R.string.voice_default)
+                    Picker(tr(R.string.voice_label), cur, listOf("" to tr(R.string.voice_default_for_lang)) + inLang.map { it.name to it.title }) {
                         vm.ttsVoiceName = it.ifEmpty { null }; vm.saveTts()
                     }
-                    Labeled("Скорость речи", String.format(Locale.US, "%.2f×", vm.ttsRate), vm.ttsRate, 0.5f..2f) { vm.ttsRate = it; vm.saveTts() }
-                    Labeled("Высота синтезатора", String.format(Locale.US, "%.2f", vm.ttsPitchSys), vm.ttsPitchSys, 0.5f..1.5f) { vm.ttsPitchSys = it; vm.saveTts() }
+                    Labeled(tr(R.string.tts_rate), String.format(Locale.US, "%.2f×", vm.ttsRate), vm.ttsRate, 0.5f..2f) { vm.ttsRate = it; vm.saveTts() }
+                    Labeled(tr(R.string.tts_pitch_sys), String.format(Locale.US, "%.2f", vm.ttsPitchSys), vm.ttsPitchSys, 0.5f..1.5f) { vm.ttsPitchSys = it; vm.saveTts() }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton({ vm.loadTtsVoices(true) }) { Text("Обновить") }
-                        OutlinedButton({ open(Intent("com.android.settings.TTS_SETTINGS")) }) { Text("Настройки TTS") }
+                        OutlinedButton({ vm.loadTtsVoices(true) }) { Text(tr(R.string.refresh)) }
+                        OutlinedButton({ open(Intent("com.android.settings.TTS_SETTINGS")) }) { Text(tr(R.string.tts_settings_btn)) }
                     }
                     OutlinedButton({ open(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }, Modifier.fillMaxWidth()) {
-                        Text("Установить голосовые данные")
+                        Text(tr(R.string.tts_install_data))
                     }
                 }
-                Labeled("Пауза между фразами", "${vm.ttsPause} мс", vm.ttsPause.toFloat(), 0f..1000f, 9) { vm.ttsPause = it.toInt(); vm.saveTts() }
+                Labeled(tr(R.string.tts_pause), tr(R.string.fmt_ms, vm.ttsPause), vm.ttsPause.toFloat(), 0f..1000f, 9) { vm.ttsPause = it.toInt(); vm.saveTts() }
             }
         }
 
@@ -135,9 +135,9 @@ fun TtsScreen(vm: MainVm) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
-                        Text("2. Голос RVC", style = MaterialTheme.typography.titleMedium)
+                        Text(tr(R.string.tts_step2), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (vm.ttsRvc) "Речь будет преобразована в выбранный голос" else "Только озвучка: результат — голос синтезатора",
+                            if (vm.ttsRvc) tr(R.string.tts_rvc_on) else tr(R.string.tts_rvc_off),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -145,29 +145,29 @@ fun TtsScreen(vm: MainVm) {
                 }
                 if (vm.ttsRvc) {
                     if (vm.voices.isEmpty()) {
-                        Text("Нет добавленных голосов RVC.")
-                        Button({ vm.tab = 0 }) { Text("Добавить голос") }
+                        Text(tr(R.string.tts_no_rvc_voices))
+                        Button({ vm.tab = 0 }) { Text(tr(R.string.voices_add_title)) }
                     } else {
-                        Picker("Голос", vm.voice?.name ?: "не выбран", vm.voices.map { it.id to it.name }) { id -> vm.voiceId = id }
+                        Picker(tr(R.string.voice_label), vm.voice?.name ?: tr(R.string.not_selected), vm.voices.map { it.id to it.name }) { id -> vm.voiceId = id }
                     }
                     val hasIdx = vm.voice?.hasIndex == true
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Высота тона:")
-                        FilterChip(vm.tFcpe, { vm.tFcpe = true; vm.saveTts() }, label = { Text("FCPE · речь") })
-                        FilterChip(!vm.tFcpe, { vm.tFcpe = false; vm.saveTts() }, label = { Text("RMVPE · точный") })
+                        Text(tr(R.string.pitch_mode_label))
+                        FilterChip(vm.tFcpe, { vm.tFcpe = true; vm.saveTts() }, label = { Text(tr(R.string.f0_fcpe_chip)) })
+                        FilterChip(!vm.tFcpe, { vm.tFcpe = false; vm.saveTts() }, label = { Text(tr(R.string.f0_rmvpe_precise)) })
                     }
-                    Labeled("Высота голоса (Pitch)", "%+d пт".format(vm.tPitch), vm.tPitch.toFloat(), -24f..24f, 47) { vm.tPitch = it.toInt(); vm.saveTts() }
+                    Labeled(tr(R.string.lbl_pitch), tr(R.string.fmt_st, vm.tPitch), vm.tPitch.toFloat(), -24f..24f, 47) { vm.tPitch = it.toInt(); vm.saveTts() }
                     Text(
-                        "Совет: мужской синтезатор → женский голос RVC обычно +12, и наоборот −12.",
+                        tr(R.string.tts_pitch_tip),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Labeled(
-                        "Сходство с голосом (Index Rate)" + if (hasIdx) "" else " — нет .index",
+                        tr(if (hasIdx) R.string.lbl_index_rate else R.string.lbl_index_rate_noidx),
                         String.format(Locale.US, "%.2f", if (hasIdx) vm.tIndex else 0f), vm.tIndex, 0f..1f, enabled = hasIdx,
                     ) { vm.tIndex = it; vm.saveTts() }
-                    Labeled("Защита согласных (Protect)", String.format(Locale.US, "%.2f", vm.tProtect), vm.tProtect, 0f..0.5f) { vm.tProtect = it; vm.saveTts() }
-                    Labeled("Громкость: исходник ↔ модель (RMS Mix)", String.format(Locale.US, "%.2f", vm.tRms), vm.tRms, 0f..1f) { vm.tRms = it; vm.saveTts() }
-                    Labeled("Температура", String.format(Locale.US, "%.2f", vm.tTemp), vm.tTemp, 0f..1f) { vm.tTemp = it; vm.saveTts() }
+                    Labeled(tr(R.string.lbl_protect), String.format(Locale.US, "%.2f", vm.tProtect), vm.tProtect, 0f..0.5f) { vm.tProtect = it; vm.saveTts() }
+                    Labeled(tr(R.string.lbl_rms), String.format(Locale.US, "%.2f", vm.tRms), vm.tRms, 0f..1f) { vm.tRms = it; vm.saveTts() }
+                    Labeled(tr(R.string.lbl_temp), String.format(Locale.US, "%.2f", vm.tTemp), vm.tTemp, 0f..1f) { vm.tTemp = it; vm.saveTts() }
                 }
             }
         }
@@ -175,7 +175,7 @@ fun TtsScreen(vm: MainVm) {
         if (job.running) {
             JobCard(job) { vm.cancel() }
         } else {
-            Button({ go() }, Modifier.fillMaxWidth()) { Text(if (vm.ttsRvc) "Озвучить голосом RVC" else "Озвучить") }
+            Button({ go() }, Modifier.fillMaxWidth()) { Text(if (vm.ttsRvc) tr(R.string.tts_go_rvc) else tr(R.string.tts_go)) }
             job.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
 

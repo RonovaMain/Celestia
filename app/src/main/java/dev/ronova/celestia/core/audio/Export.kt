@@ -1,5 +1,7 @@
 package dev.ronova.celestia.core.audio
 
+import dev.ronova.celestia.R
+
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -11,10 +13,10 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-enum class ExportFmt(val ext: String, val mime: String, val title: String) {
-    WAV("wav", "audio/wav", "WAV · без сжатия"),
-    FLAC("flac", "audio/flac", "FLAC · без потерь, вдвое меньше"),
-    M4A("m4a", "audio/mp4", "M4A (AAC 256 кбит/с) · компактный"),
+enum class ExportFmt(val ext: String, val mime: String, val title: Int) {
+    WAV("wav", "audio/wav", R.string.fmt_wav),
+    FLAC("flac", "audio/flac", R.string.fmt_flac),
+    M4A("m4a", "audio/mp4", R.string.fmt_m4a),
 }
 
 /** Кодирует стерео 16-бит WAV приложения (44-байтовый заголовок) в выбранный формат. */
@@ -269,7 +271,7 @@ object Flac {
 
     fun encode(src: File, dest: File, progress: (Float) -> Unit) {
         val info = Export.probe(src)
-        require(info.ch == 2) { "FLAC: ожидается стерео" }
+        require(info.ch == 2) { "FLAC: stereo input expected" }
         val total = info.frames
         dest.outputStream().buffered(1 shl 17).use { os ->
             os.write("fLaC".toByteArray())

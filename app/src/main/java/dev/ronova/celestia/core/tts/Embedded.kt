@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.tts
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import android.content.res.AssetManager
 import com.k2fsa.sherpa.onnx.OfflineTts
@@ -17,13 +20,28 @@ import java.io.IOException
  */
 class EmbVoice(
     val id: String,
-    val title: String,
+    val name: String,
+    val female: Boolean,
+    val tag: String,          // "", ", US", ", UK", " (Piper)"
     val lang: String,
     val pack: String,
     val sid: Int,
     val espeak: String = "",
     val dataPack: String = pack,
-)
+    val quiet: Boolean = false,
+) {
+    /** Название для списка голосов на текущем языке интерфейса. */
+    val title: String get() {
+        val n = when (id) {
+            "ru-irina" -> tr(R.string.voice_irina)
+            "ru-denis" -> tr(R.string.voice_denis)
+            else -> name
+        }
+        var s = n + " · " + tr(if (female) R.string.gender_f else R.string.gender_m) + tag
+        if (quiet) s += " (" + tr(R.string.voice_quiet) + ")"
+        return s
+    }
+}
 
 object EmbCatalog {
     val langs = listOf(
@@ -33,25 +51,25 @@ object EmbCatalog {
 
     // sid — номера дикторов в voices.bin Kokoro v1.0 (по алфавиту имён, 53 диктора)
     val voices = listOf(
-        EmbVoice("ru-irina", "Ирина · жен. (Piper)", "ru", "piper-ru-irina", 0),
-        EmbVoice("ru-denis", "Денис · муж. (Piper)", "ru", "piper-ru-denis", 0, dataPack = "piper-ru-irina"),
-        EmbVoice("en-heart", "Heart · жен., US", "en", "kokoro", 3),
-        EmbVoice("en-bella", "Bella · жен., US", "en", "kokoro", 2),
-        EmbVoice("en-nicole", "Nicole · жен., US (тихий)", "en", "kokoro", 6),
-        EmbVoice("en-sarah", "Sarah · жен., US", "en", "kokoro", 9),
-        EmbVoice("en-adam", "Adam · муж., US", "en", "kokoro", 11),
-        EmbVoice("en-michael", "Michael · муж., US", "en", "kokoro", 16),
-        EmbVoice("en-emma", "Emma · жен., UK", "en", "kokoro", 21, espeak = "en-gb"),
-        EmbVoice("en-george", "George · муж., UK", "en", "kokoro", 26, espeak = "en-gb"),
-        EmbVoice("es-dora", "Dora · жен.", "es", "kokoro", 28, espeak = "es"),
-        EmbVoice("es-alex", "Alex · муж.", "es", "kokoro", 29, espeak = "es"),
-        EmbVoice("fr-siwis", "Siwis · жен.", "fr", "kokoro", 30, espeak = "fr-fr"),
-        EmbVoice("it-sara", "Sara · жен.", "it", "kokoro", 35, espeak = "it"),
-        EmbVoice("it-nicola", "Nicola · муж.", "it", "kokoro", 36, espeak = "it"),
-        EmbVoice("pt-dora", "Dora · жен.", "pt", "kokoro", 42, espeak = "pt-br"),
-        EmbVoice("pt-alex", "Alex · муж.", "pt", "kokoro", 43, espeak = "pt-br"),
-        EmbVoice("hi-alpha", "Alpha · жен.", "hi", "kokoro", 31, espeak = "hi"),
-        EmbVoice("hi-omega", "Omega · муж.", "hi", "kokoro", 33, espeak = "hi"),
+        EmbVoice("ru-irina", "Irina", true, " (Piper)", "ru", "piper-ru-irina", 0),
+        EmbVoice("ru-denis", "Denis", false, " (Piper)", "ru", "piper-ru-denis", 0, dataPack = "piper-ru-irina"),
+        EmbVoice("en-heart", "Heart", true, ", US", "en", "kokoro", 3),
+        EmbVoice("en-bella", "Bella", true, ", US", "en", "kokoro", 2),
+        EmbVoice("en-nicole", "Nicole", true, ", US", "en", "kokoro", 6, quiet = true),
+        EmbVoice("en-sarah", "Sarah", true, ", US", "en", "kokoro", 9),
+        EmbVoice("en-adam", "Adam", false, ", US", "en", "kokoro", 11),
+        EmbVoice("en-michael", "Michael", false, ", US", "en", "kokoro", 16),
+        EmbVoice("en-emma", "Emma", true, ", UK", "en", "kokoro", 21, espeak = "en-gb"),
+        EmbVoice("en-george", "George", false, ", UK", "en", "kokoro", 26, espeak = "en-gb"),
+        EmbVoice("es-dora", "Dora", true, "", "es", "kokoro", 28, espeak = "es"),
+        EmbVoice("es-alex", "Alex", false, "", "es", "kokoro", 29, espeak = "es"),
+        EmbVoice("fr-siwis", "Siwis", true, "", "fr", "kokoro", 30, espeak = "fr-fr"),
+        EmbVoice("it-sara", "Sara", true, "", "it", "kokoro", 35, espeak = "it"),
+        EmbVoice("it-nicola", "Nicola", false, "", "it", "kokoro", 36, espeak = "it"),
+        EmbVoice("pt-dora", "Dora", true, "", "pt", "kokoro", 42, espeak = "pt-br"),
+        EmbVoice("pt-alex", "Alex", false, "", "pt", "kokoro", 43, espeak = "pt-br"),
+        EmbVoice("hi-alpha", "Alpha", true, "", "hi", "kokoro", 31, espeak = "hi"),
+        EmbVoice("hi-omega", "Omega", false, "", "hi", "kokoro", 33, espeak = "hi"),
     )
 
     fun byId(id: String?) = voices.firstOrNull { it.id == id }
@@ -68,7 +86,7 @@ object EmbPacks {
 
     fun ensure(ctx: Context, pack: String) {
         if (installed(ctx, pack)) return
-        check(inApk(ctx, pack)) { "Голос «$pack» не вшит в сборку: смотрите шаг sherpa-onnx в логе CI" }
+        check(inApk(ctx, pack)) { tr(R.string.err_voice_pack_missing, pack) }
         val d = dir(ctx, pack)
         d.deleteRecursively(); d.mkdirs()
         copyDir(ctx.assets, "tts/$pack", d)
@@ -120,7 +138,7 @@ class EmbeddedTts(private val ctx: Context) : AutoCloseable {
     }
 
     fun synth(text: String, sid: Int, speed: Float): FloatArray {
-        val t = tts ?: error("Синтезатор не запущен")
+        val t = tts ?: error(tr(R.string.err_synth_not_running))
         return t.generate(text = text, sid = sid, speed = speed).samples
     }
 

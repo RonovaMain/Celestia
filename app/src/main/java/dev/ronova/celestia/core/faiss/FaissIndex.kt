@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.faiss
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import java.io.BufferedInputStream
 import java.io.EOFException
 import java.io.File
@@ -61,7 +64,7 @@ class FaissIndex private constructor(
 
     /** RVC: k=8, вес = 1/dist², смесь = Σw·v / Σw. Результат подмешивается в [feats] с долей [rate]. */
     fun blend(feats: FloatArray, frames: Int, rate: Float, threads: Int, k: Int = 8, nprobe: Int = 8) {
-        require(feats.size == frames * dim) { "Размерность индекса ($dim) не совпала с признаками" }
+        require(feats.size == frames * dim) { tr(R.string.err_index_dim, dim) }
         val nt = threads.coerceIn(1, 8)
         val pool = Executors.newFixedThreadPool(nt)
         try {
@@ -138,7 +141,7 @@ class FaissIndex private constructor(
             return when (n) {
                 cnt -> r.floats(cnt.toInt())
                 cnt * 4 -> r.floats(cnt.toInt())
-                else -> error("Неожиданный размер векторов в индексе ($n)")
+                else -> error("Unexpected vector size in the index ($n)")
             }
         }
 
@@ -150,7 +153,7 @@ class FaissIndex private constructor(
                     return build(d, 1, FloatArray(d), intArrayOf(0, n.toInt()), data)
                 }
                 "IwFl" -> return readIvfFlat(r)
-                else -> error("Тип индекса «$cc» не поддержан: нужен IVF,Flat (как создаёт RVC)")
+                else -> error(tr(R.string.err_index_type, cc))
             }
         }
 
@@ -160,7 +163,7 @@ class FaissIndex private constructor(
             r.long()                                     // nprobe
             // quantizer: вложенный плоский индекс с центроидами
             val qcc = r.fourcc()
-            check(qcc.startsWith("IxF")) { "Квантайзер «$qcc» не поддержан" }
+            check(qcc.startsWith("IxF")) { "Quantizer '$qcc' is not supported" }
             val (qd, qn) = header(r)
             val centroids = flatBody(r, qd, qn)
             // direct map
@@ -169,19 +172,19 @@ class FaissIndex private constructor(
             if (dmType == 2) r.skip(r.long() * 16)
             // invlists
             val ilcc = r.fourcc()
-            check(ilcc == "ilar") { "Списки «$ilcc» не поддержаны (нужен ArrayInvertedLists)" }
+            check(ilcc == "ilar") { "Inverted lists '$ilcc' are not supported (ArrayInvertedLists required)" }
             val nl = r.long().toInt(); val codeSize = r.long().toInt()
-            check(nl == nlist && codeSize == d * 4) { "Индекс не Flat-типа (code_size=$codeSize)" }
+            check(nl == nlist && codeSize == d * 4) { "The index is not Flat-type (code_size=$codeSize)" }
             val kind = r.fourcc()
             val nSizes = r.long().toInt()
             val sizes = IntArray(nlist)
             if (kind == "full") for (i in 0 until nSizes) sizes[i] = r.long().toInt()
             else if (kind == "sprs") { var i = 0; while (i < nSizes) { val li = r.long().toInt(); sizes[li] = r.long().toInt(); i += 2 } }
-            else error("Неизвестная раскладка списков «$kind»")
+            else error("Unknown list layout '$kind'")
             val start = IntArray(nlist + 1)
             for (i in 0 until nlist) start[i + 1] = start[i] + sizes[i]
             val total = start[nlist]
-            check(total.toLong() == ntotal) { "ntotal=$ntotal, в списках $total" }
+            check(total.toLong() == ntotal) { "ntotal=$ntotal, but the lists contain $total" }
             val vec = FloatArray(total * d)
             for (l in 0 until nlist) if (sizes[l] > 0) {
                 val part = r.floats(sizes[l] * d)

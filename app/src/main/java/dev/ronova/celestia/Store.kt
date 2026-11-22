@@ -6,18 +6,18 @@ import android.provider.OpenableColumns
 import org.json.JSONObject
 import java.io.File
 
-enum class EngineKind(val file: String, val title: String, val hint: String) {
-    HUBERT("hubert.onnx", "ContentVec (энкодер речи)", "vec-768-layer-12: 16 кГц → 768 признаков"),
-    RMVPE("rmvpe.onnx", "RMVPE (высота тона, точный)", "Лучше для пения и музыки"),
-    FCPE("fcpe.onnx", "FCPE (высота тона, быстрый)", "Лучше для чистой речи"),
-    MDX_VOC("mdx_voc_ft.onnx", "MDX-Net Voc FT (разделение вокала)", "UVR, основная: чистый вокал, ~67 МБ"),
-    MDX_KIM("mdx_kim_vocal2.onnx", "MDX-Net Kim Vocal 2 (разделение вокала)", "UVR, запасная: мягче к инструментам, ~67 МБ"),
+enum class EngineKind(val file: String, val title: Int, val hint: Int) {
+    HUBERT("hubert.onnx", R.string.eng_hubert_t, R.string.eng_hubert_h),
+    RMVPE("rmvpe.onnx", R.string.eng_rmvpe_t, R.string.eng_rmvpe_h),
+    FCPE("fcpe.onnx", R.string.eng_fcpe_t, R.string.eng_fcpe_h),
+    MDX_VOC("mdx_voc_ft.onnx", R.string.eng_mdxvoc_t, R.string.eng_mdxvoc_h),
+    MDX_KIM("mdx_kim_vocal2.onnx", R.string.eng_mdxkim_t, R.string.eng_mdxkim_h),
 }
 
 /** Модели разделения вокала/минуса. compensate — поправка громкости вокала из параметров UVR. */
-enum class SepModel(val kind: EngineKind, val title: String, val compensate: Float) {
-    VOC_FT(EngineKind.MDX_VOC, "Voc FT · лучшая", 1.021f),
-    KIM2(EngineKind.MDX_KIM, "Kim Vocal 2 · запасная", 1.009f),
+enum class SepModel(val kind: EngineKind, val title: Int, val compensate: Float) {
+    VOC_FT(EngineKind.MDX_VOC, R.string.sep_voc_ft, 1.021f),
+    KIM2(EngineKind.MDX_KIM, R.string.sep_kim2, 1.009f),
 }
 
 /** Разделённая песня: папка с vocals.wav и instrumental.wav (стерео 44,1 кГц, 16 бит). */
@@ -30,7 +30,7 @@ data class StemSet(val dir: File, val name: String, val model: String, val creat
             if (!File(dir, "vocals.wav").exists() || !File(dir, "instrumental.wav").exists()) return null
             return runCatching {
                 val j = JSONObject(File(dir, "meta.json").readText())
-                StemSet(dir, j.getString("name"), j.optString("model"), j.optLong("created"), j.optInt("seconds"))
+                StemSet(dir, j.getString("name"), j.optString("model").substringBefore(" ·"), j.optLong("created"), j.optInt("seconds"))
             }.getOrNull()
         }
     }
@@ -100,7 +100,7 @@ class Store(private val ctx: Context) {
                     while (true) {
                         val n = i.read(buf); if (n < 0) break
                         o.write(buf, 0, n); done += n
-                        onProgress(k.title, done.toFloat() / size)
+                        onProgress(tr(k.title), done.toFloat() / size)
                     }
                 }
             }

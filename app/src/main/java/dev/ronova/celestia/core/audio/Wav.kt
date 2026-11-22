@@ -44,7 +44,7 @@ object Wav {
         RandomAccessFile(f, "r").use { raf ->
             val h = ByteArray(12)
             raf.readFully(h)
-            require(String(h, 0, 4, Charsets.ISO_8859_1) == "RIFF" && String(h, 8, 4, Charsets.ISO_8859_1) == "WAVE") { "Файл не является WAV" }
+            require(String(h, 0, 4, Charsets.ISO_8859_1) == "RIFF" && String(h, 8, 4, Charsets.ISO_8859_1) == "WAVE") { "Not a WAV file" }
             var tag = 1; var ch = 1; var sr = 22050; var bits = 16
             val ck = ByteArray(8)
             var dataLen = -1L
@@ -70,10 +70,10 @@ object Wav {
                     raf.seek(raf.filePointer + size + (size and 1L))
                 }
             }
-            require(dataLen >= 0) { "В WAV нет аудиоданных" }
-            require(ch in 1..8 && sr > 0) { "Неверный заголовок WAV" }
+            require(dataLen >= 0) { "The WAV has no audio data" }
+            require(ch in 1..8 && sr > 0) { "Invalid WAV header" }
             val bytes = bits / 8
-            require(bytes in 1..4) { "Неподдерживаемая разрядность WAV: $bits" }
+            require(bytes in 1..4) { "Unsupported WAV bit depth: $bits" }
             val total = (dataLen / bytes).toInt()
             val out = FloatArray(total - total % ch)
             val blockSamples = (1 shl 18) / bytes

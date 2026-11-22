@@ -1,5 +1,8 @@
 package dev.ronova.celestia.core.pth
 
+import dev.ronova.celestia.R
+import dev.ronova.celestia.tr
+
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
@@ -40,20 +43,20 @@ object PthToOnnx {
 
     @Suppress("UNCHECKED_CAST")
     private fun pickTemplate(ctx: Context, h: PthHeader): TemplateInfo {
-        require(h.version == "v2") { "Поддерживаются только RVC v2 (в файле version=${h.version ?: "v1"})" }
-        require((h.f0 ?: 1) == 1) { "Модели без F0 (f0=0) не поддерживаются" }
-        val sr = srOf(h) ?: error("Не удалось определить частоту модели (поддержаны 32k/40k/48k)")
+        require(h.version == "v2") { tr(R.string.err_only_v2, h.version ?: "v1") }
+        require((h.f0 ?: 1) == 1) { tr(R.string.err_no_f0) }
+        val sr = srOf(h) ?: error(tr(R.string.err_unknown_sr))
         val id = "v2_${sr / 1000}k"
         val rates = (h.config?.getOrNull(12) as? List<Any?>)?.map { (it as Number).toInt() }
         val ex = readJson(ctx, id).getJSONArray("upsample_rates").let { a -> List(a.length()) { a.getInt(it) } }
-        require(rates == null || rates == ex) { "Нестандартная архитектура генератора: $rates (ждали $ex)" }
+        require(rates == null || rates == ex) { "Non-standard generator architecture: $rates (expected $ex)" }
         return loadTemplate(ctx, id)
     }
 
     /** weight_norm: w[i,...] = v[i,...] * g[i] / ||v[i,...]|| (g имеет форму [d0,1,1]). */
     private fun fuse(g: FloatArray, v: FloatArray): FloatArray {
         val d0 = g.size
-        require(d0 > 0 && v.size % d0 == 0) { "Несовместимые weight_g/weight_v" }
+        require(d0 > 0 && v.size % d0 == 0) { "Incompatible weight_g/weight_v" }
         val per = v.size / d0
         val out = FloatArray(v.size)
         for (i in 0 until d0) {
@@ -77,7 +80,7 @@ object PthToOnnx {
                 val (off, numel) = tpl!!.tensors.getValue(key)
                 // emb_g: в шаблоне один спикер; в .pth их может быть 109 — берём нулевую строку
                 val src = if (data.size > numel && key == "emb_g.weight") data.copyOf(numel) else data
-                check(src.size == numel) { "Форма $key не совпала: ${src.size} вместо $numel" }
+                check(src.size == numel) { "Shape mismatch for $key: ${src.size} instead of $numel" }
                 val bytes = ByteArray(numel * 4)
                 ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().put(src)
                 raf!!.seek(off)
@@ -112,9 +115,9 @@ object PthToOnnx {
                 },
                 progress = onProgress,
             ) }
-            val t = tpl ?: error("Не удалось прочитать .pth")
+            val t = tpl ?: error(tr(R.string.err_pth_read))
             val missing = t.tensors.keys - written
-            check(missing.isEmpty()) { "В .pth нет весов: ${missing.take(5).joinToString()}" }
+            check(missing.isEmpty()) { tr(R.string.err_pth_missing, missing.take(5).joinToString()) }
             raf?.close()
             File(dest, "voice.json").writeText(JSONObject().put("name", name).put("sr", t.sr).put("hop", t.hop).toString())
         } catch (e: Throwable) {
