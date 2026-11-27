@@ -70,6 +70,7 @@
     <string name="about_version">Версия %1$s</string>
     <string name="about_desc">Офлайн-смена голоса на основе RVC v2. Всё работает на устройстве: без интернета, облаков и телеметрии.</string>
     <string name="about_author">Автор: RonovaDev</string>
+    <string name="about_support">Поддержать проект</string>
     <string name="lang_ui_label">Язык интерфейса</string>
     <string name="lang_label">Язык</string>
     <string name="lang_system">Как в системе</string>

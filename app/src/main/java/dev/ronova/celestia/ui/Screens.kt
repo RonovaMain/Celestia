@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package dev.ronova.celestia.ui
 
 import dev.ronova.celestia.R
@@ -12,6 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -417,8 +421,13 @@ fun EngineScreen(vm: MainVm) {
                 }
                 Text(tr(R.string.about_desc), style = MaterialTheme.typography.bodyMedium)
                 Text(tr(R.string.about_author), style = MaterialTheme.typography.bodyLarge)
-                TextButton({ runCatching { uriHandler.openUri("https://github.com/RonovaMain") } }) {
-                    Text("GitHub: RonovaMain")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton({ runCatching { uriHandler.openUri("https://github.com/RonovaMain") } }) {
+                        Text("GitHub: RonovaMain")
+                    }
+                    TextButton({ runCatching { uriHandler.openUri("https://boosty.to/ronovamain/donate") } }) {
+                        Text(tr(R.string.about_support))
+                    }
                 }
             }
         }

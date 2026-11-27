@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "1.5.2"
+        versionName = "1.5.3"
         // Только 64-бит ARM: для RVC x86/armv7 бесполезны, а ORT весит ~15 МБ на каждый ABI.
         ndk { abiFilters += listOf("arm64-v8a") }
     }

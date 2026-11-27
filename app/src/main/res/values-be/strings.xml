@@ -70,6 +70,7 @@
     <string name="about_version">Версія %1$s</string>
     <string name="about_desc">Афлайн-змена голасу на аснове RVC v2. Усё працуе на прыладзе: без інтэрнэту, воблакаў і тэлеметрыі.</string>
     <string name="about_author">Аўтар: RonovaDev</string>
+    <string name="about_support">Падтрымаць праект</string>
     <string name="lang_ui_label">Мова інтэрфейсу</string>
     <string name="lang_label">Мова</string>
     <string name="lang_system">Як у сістэме</string>
